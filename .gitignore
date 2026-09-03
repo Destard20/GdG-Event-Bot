@@ -1,0 +1,26 @@
+# Environments and Secrets
+.environments
+.env
+.environments.*
+!.environments.example
+!.env.example
+
+# Data folder (contains SQLite database and temporary downloaded images)
+data/*
+!data/.gitkeep
+!data/*.ttf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+
+# Examples folder for development
+examples/
