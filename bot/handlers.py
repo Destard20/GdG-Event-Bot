@@ -12,6 +12,8 @@ from core.db import get_event_by_telegram_message_id, update_event_field, get_ev
 logger = logging.getLogger(__name__)
 
 is_bot_paused = False
+last_recap_message_id = None
+last_recap_events = None
 
 async def pause_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_bot_paused
@@ -180,6 +182,24 @@ async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAUL
     if not forward_msg_id:
         return
         
+    global last_recap_message_id, last_recap_events
+    if forward_msg_id and forward_msg_id == last_recap_message_id:
+        from utils.templates import recap_links_text
+        links_text = recap_links_text(last_recap_events)
+        if links_text:
+            try:
+                await context.bot.send_message(
+                    chat_id=message.chat_id,
+                    text=links_text,
+                    reply_to_message_id=message.message_id,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
+                )
+                logger.info(f"Successfully posted recap links reply in discussion group for recap message {forward_msg_id}")
+            except Exception as e:
+                logger.error(f"Error posting recap links to discussion group: {e}")
+        return
+
     # Get event from DB using the telegram_message_id
     event = get_event_by_telegram_message_id(forward_msg_id)
     if not event:
@@ -187,7 +207,7 @@ async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAUL
         return
         
     # Send a reply with the booking keyboard
-    pub_keyboard = get_event_booking_keyboard(event['id'])
+    pub_keyboard = get_event_booking_keyboard(event['id'], event=event)
     
     try:
         await context.bot.send_message(
@@ -332,7 +352,7 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         pub_keyboard = None
         if event['status'] == 'approved':
-            pub_keyboard = get_event_booking_keyboard(event_id)
+            pub_keyboard = get_event_booking_keyboard(event_id, event=event)
             
         try:
             if event.get('image_path'):

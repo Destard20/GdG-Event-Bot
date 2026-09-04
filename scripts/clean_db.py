@@ -33,5 +33,23 @@ def clean():
     except Exception as e:
         print(f"❌ Error deleting images: {e}")
 
+    # 3. Clean empty folders inside DATA_DIR
+    try:
+        deleted_folders = 0
+        # Walk bottom-up so child folders are removed before parent folders
+        for root, dirs, files in os.walk(DATA_DIR, topdown=False):
+            # Never delete DATA_DIR itself
+            if os.path.abspath(root) == os.path.abspath(DATA_DIR):
+                continue
+            if not os.listdir(root):
+                try:
+                    os.rmdir(root)
+                    deleted_folders += 1
+                except OSError as err:
+                    print(f"⚠️ Could not delete folder {root}: {err}")
+        print(f"✅ Deleted {deleted_folders} empty folders from {DATA_DIR}.")
+    except Exception as e:
+        print(f"❌ Error deleting empty folders: {e}")
+
 if __name__ == '__main__':
     clean()

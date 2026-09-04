@@ -49,11 +49,17 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False):
     # send to admin
     keyboard = get_recap_approval_keyboard(date_str)
     
+    caption_text = recap_text[:1024] if len(recap_text) > 1024 else recap_text
+    
     if collage_path:
-        with open(collage_path, 'rb') as f:
-            await bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=recap_text[:1000], reply_markup=keyboard, parse_mode="HTML") # caption limit
+        try:
+            with open(collage_path, 'rb') as f:
+                await bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=caption_text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Error sending recap collage photo to admin: {e}")
+            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=caption_text, reply_markup=keyboard, parse_mode="HTML")
     else:
-        await bot.send_message(chat_id=ADMIN_CHAT_ID, text=recap_text, reply_markup=keyboard, parse_mode="HTML")
+        await bot.send_message(chat_id=ADMIN_CHAT_ID, text=caption_text, reply_markup=keyboard, parse_mode="HTML")
         
     # Mark as recap to avoid duplicate in next recaps (or wait for approval?)
     # For now, mark them so they don't get picked up again immediately.

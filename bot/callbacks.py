@@ -131,16 +131,38 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif data.startswith("publish_recap_"):
         # Publish the message to the public channel here
+        date_str = data.split("_")[2]
+        events = get_pending_events_for_recap(date_str)
+        pub_msg = None
+
         if PUBLIC_CHANNEL_ID:
-            await context.bot.copy_message(chat_id=PUBLIC_CHANNEL_ID, from_chat_id=query.message.chat_id, message_id=query.message.message_id)
+            pub_msg = await context.bot.copy_message(chat_id=PUBLIC_CHANNEL_ID, from_chat_id=query.message.chat_id, message_id=query.message.message_id)
+
+            # Send links message in response to the main recap message
+            from utils.templates import recap_links_text
+            links_text = recap_links_text(events)
+            if links_text and pub_msg:
+                try:
+                    await context.bot.send_message(
+                        chat_id=PUBLIC_CHANNEL_ID,
+                        text=links_text,
+                        reply_to_message_id=pub_msg.message_id,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending recap links message in channel: {e}")
+
+                import bot.handlers
+                bot.handlers.last_recap_message_id = pub_msg.message_id
+                bot.handlers.last_recap_events = events
+
         try:
             await query.edit_message_caption(caption=f"{query.message.caption}\n\n✅ RECAP PUBLISHED")
         except:
             await query.edit_message_text(text=f"{query.message.text}\n\n✅ RECAP PUBLISHED")
             
         # Generazione articolo WordPress post-pubblicazione
-        date_str = data.split("_")[2]
-        events = get_pending_events_for_recap(date_str)
         if events:
             await context.bot.send_message(chat_id=query.message.chat_id, text="⏳ Generazione della bozza su WordPress in corso...")
             
@@ -238,7 +260,10 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(text=f"{query.message.text}\n\n❌ Errore durante la pubblicazione dell'articolo.")
             except:
                 pass
-                
+
+    elif data.startswith("full_"):
+        await query.answer("I posti per questo tavolo sono esauriti!", show_alert=True)
+
     elif data.startswith("book_"):
         event_id = int(data.split("_")[1])
         user = query.from_user
@@ -251,7 +276,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             event = get_event(event_id)
             if event:
                 public_text = format_public_event_message(event)
-                pub_keyboard = get_event_booking_keyboard(event_id)
+                pub_keyboard = get_event_booking_keyboard(event_id, event=event)
                 try:
                     # Se cliccato nel canale originale, query.message è il messaggio del canale.
                     # Se cliccato nel gruppo di discussione, query.message è il messaggio con i bottoni.
@@ -280,6 +305,12 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     await query.edit_message_caption(caption=public_text, reply_markup=pub_keyboard)
                                 else:
                                     await query.edit_message_text(text=public_text, reply_markup=pub_keyboard)
+
+                    if str(query.message.chat_id) != str(PUBLIC_CHANNEL_ID):
+                        try:
+                            await query.edit_message_reply_markup(reply_markup=pub_keyboard)
+                        except Exception as e:
+                            logger.debug(f"Could not edit reply markup on current message: {e}")
                 except Exception as e:
                     logger.error(f"Error updating message on book: {e}")
                 
@@ -306,7 +337,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             event = get_event(event_id)
             if event:
                 public_text = format_public_event_message(event)
-                pub_keyboard = get_event_booking_keyboard(event_id)
+                pub_keyboard = get_event_booking_keyboard(event_id, event=event)
                 try:
                     # Se cliccato nel canale originale, query.message è il messaggio del canale.
                     # Se cliccato nel gruppo di discussione, query.message è il messaggio con i bottoni.
@@ -335,6 +366,12 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     await query.edit_message_caption(caption=public_text, reply_markup=pub_keyboard)
                                 else:
                                     await query.edit_message_text(text=public_text, reply_markup=pub_keyboard)
+
+                    if str(query.message.chat_id) != str(PUBLIC_CHANNEL_ID):
+                        try:
+                            await query.edit_message_reply_markup(reply_markup=pub_keyboard)
+                        except Exception as e:
+                            logger.debug(f"Could not edit reply markup on current message: {e}")
                 except Exception as e:
                     logger.error(f"Error updating message on unbook: {e}")
                 

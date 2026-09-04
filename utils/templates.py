@@ -69,7 +69,7 @@ def format_instagram_story(event_data):
 def recap_generate_text(day_str, date_str, events):
     header = (
         f"Quali sono le proposte della Gilda del Grifone per stasera, {day_str} {date_str}? 🎲\n\n"
-        f"Ecco i tavoli in programma! Per prenotare un posto, clicca sul titolo del gioco e usa il pulsante ➕:\n\n"
+        f"Ecco i tavoli in programma! Trovi i link per prenotarti nei commenti qui sotto:\n\n"
     )
     
     body = ""
@@ -90,22 +90,16 @@ def recap_generate_text(day_str, date_str, events):
             else:
                 seats_display = f"{avail}/{max_s}"
             
-        # Format title as HTML link if link exists
-        link = ev.get('message_link')
         title = html.escape(ev.get('title') or 'Evento')
-        if link:
-            title_display = f"<a href='{link}'>{title}</a>"
-        else:
-            title_display = f"{title}"
             
         if ev.get('status') == 'cancelled':
             if max_s is None:
                 seats_display = "0 (Nessun limite)"
             else:
                 seats_display = f"0/{max_s}"
-            body += f"- ❌ {title_display}{sys_str} : {seats_display} [ANNULLATO]\n\n"
+            body += f"- ❌ {title}{sys_str} : {seats_display} [ANNULLATO]\n\n"
         else:
-            body += f"- {title_display}{sys_str} : {seats_display}\n\n"
+            body += f"- {title}{sys_str} : {seats_display}\n\n"
         
     footer = (
         "Tutto pieno? Vieni lo stesso! Abbiamo oltre 400 giochi a disposizione. "
@@ -118,7 +112,7 @@ def recap_generate_text(day_str, date_str, events):
     if len(full_text) > 1024:
         slim_header = (
             f"Proposte di stasera, {day_str} {date_str} 🎲\n"
-            f"Clicca sul titolo per andare all'evento e prenotarti:\n\n"
+            f"Trovi i link per prenotarti nei commenti qui sotto:\n\n"
         )
         slim_footer = (
             "\nVuoi proporre una serata? Scrivi a @Destard o @ManueleAbi.\n"
@@ -129,3 +123,20 @@ def recap_generate_text(day_str, date_str, events):
     return full_text
 
 
+
+def recap_links_text(events):
+    if not events:
+        return ""
+    text = "🔗 <b>Link agli eventi per prenotarsi:</b>\n\n"
+    for ev in events:
+        if ev.get('status') == 'cancelled':
+            continue
+        link = ev.get('message_link')
+        title = html.escape(ev.get('title') or 'Evento')
+        sys_val = ev.get('system')
+        sys_str = f" ({html.escape(sys_val)})" if sys_val else ""
+        if link:
+            text += f"- <a href='{link}'>{title}</a>{sys_str}\n"
+        else:
+            text += f"- {title}{sys_str}\n"
+    return text

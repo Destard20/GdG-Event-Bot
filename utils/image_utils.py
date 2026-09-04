@@ -32,7 +32,7 @@ def get_daily_dir(base_dir, date_str=None):
 def save_image_locally(image_bytes, data_dir, date_str=None):
     try:
         daily_dir = get_daily_dir(data_dir, date_str)
-        filename = f"{uuid.uuid4()}.jpg"
+        filename = f"event_{uuid.uuid4()}.jpg"
         filepath = os.path.join(daily_dir, filename)
         with open(filepath, 'wb') as f:
             f.write(image_bytes)
