@@ -1,6 +1,7 @@
 import google.generativeai as genai
 import json
 import logging
+import re
 from core.config import GEMINI_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
@@ -9,7 +10,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 def parse_event_message(message_text):
     prompt = f"""
-    You are an AI parser for a tabletop games association in Italy. 
+    You are an AI parser for a tabletop games association in Italy (Gilda del Grifone). 
     Analyze the following message and extract the event information into a strict JSON format.
     The message usually announces a game session (roleplaying, board game, etc.).
     
@@ -22,10 +23,31 @@ def parse_event_message(message_text):
     - "normalized_date": The date converted to DD-MM-YYYY format (assuming the current year is 2026 if not specified).
     - "system": The game system or genre (if any, e.g., "Sine Requie", "D&D", or board game name).
     - "host": The Master, Host, or Organizer's name and/or tag.
-    - "seats": The original string for available seats or "Posti liberi" status (e.g. "2/4", "no limit"). If the message indicates 0 free seats (e.g. "0/3" or "0/4"), output exactly "0/0 Completo".
-    - "booked_seats": The number of already booked seats (integer, default 0). IMPORTANT: if the message says "Posti liberi: 2/4" it means 2 seats are FREE out of 4, so booked_seats is 2. If it says "3/3" it means 3 seats are FREE, so booked_seats is 0. If it says "0/3 Completo" it means 0 seats are free, so booked_seats is 3. Calculate this carefully.
+    - "seats": The display string for available seats (e.g. "2/4", "no limit"). If 0 seats are free, output "0/0 Completo".
+    - "booked_seats": The number of already booked seats (integer, default 0).
+      CRITICAL RULE FOR SEATS:
+      In this Italian association, "Posti: X/Y", "Posti liberi: X/Y", or "Posti disponibili: X/Y" ALWAYS means:
+      X = FREE/AVAILABLE seats
+      Y = TOTAL/MAXIMUM seats
+      Therefore:
+      booked_seats = Y - X
+      max_seats = Y
+      
+      Examples:
+      - "Posti: 2/2" -> 2 free out of 2 total -> booked_seats = 0, max_seats = 2 (NOT full!)
+      - "Posti: 1/4" -> 1 free out of 4 total -> booked_seats = 3, max_seats = 4
+      - "Posti liberi: 2/4" -> 2 free out of 4 total -> booked_seats = 2, max_seats = 4
+      - "Posti: 0/3 Completo" -> 0 free out of 3 total -> booked_seats = 3, max_seats = 3 (Full!)
+      - "Posti: 4" (single number, no slash) -> 4 total available seats -> booked_seats = 0, max_seats = 4
+      - "Posti: no limit" or "quanti volete" -> booked_seats = 0, max_seats = null
     - "max_seats": The maximum number of available seats (integer, or null if there is no limit).
-    - "description": The synopsis or description of the event.
+    - "extra_info": Additional metadata or disclaimers if present in the message, specifically:
+      - Difficulty / Beginner friendliness (e.g. "Difficoltà: adatto a tutti", "Adatto a neofiti: Sì")
+      - Format / Duration / Campaign info (e.g. "ONESHOT", "CAMPAGNA (5 episodi)", "Durata: 3 ore")
+      - Content warnings, safety tools, disclaimers (e.g. "Attenzione: gore, violenza", "X-Card: droghe", "Avviso: Effetti audio")
+      - Genre / Themes (e.g. "Genere: Horror / Investigativo")
+      Format them cleanly as short bulleted lines (using "• ") or concise text. If none of these exist in the message, output "".
+    - "description": The synopsis or pitch of the event (focus on the story or game description; do not duplicate lines already extracted into extra_info).
     
     Return ONLY valid JSON.
     
@@ -42,6 +64,29 @@ def parse_event_message(message_text):
             text = text[3:-3].strip()
             
         data = json.loads(text)
+        
+        # Deterministic regex safety-net for "Posti [liberi]: X/Y"
+        if isinstance(data, dict) and data.get("is_event", True):
+            data['extra_info'] = str(data.get('extra_info') or '').strip()
+            m = re.search(r'Posti(?:\s+liberi|\s+disponibili)?\s*:\s*(\d+)\s*/\s*(\d+)', message_text, re.IGNORECASE)
+            if m:
+                free = int(m.group(1))
+                total = int(m.group(2))
+                if total >= 0:
+                    data['max_seats'] = total
+                    data['booked_seats'] = max(0, total - free)
+                    if free == 0 and total > 0:
+                        data['seats'] = f"0/{total} Completo"
+                    else:
+                        data['seats'] = f"{free}/{total}"
+            else:
+                m_single = re.search(r'Posti(?:\s+liberi|\s+disponibili)?\s*:\s*(\d+)(?!\s*/)', message_text, re.IGNORECASE)
+                if m_single:
+                    val = int(m_single.group(1))
+                    data['max_seats'] = val
+                    data['booked_seats'] = 0
+                    data['seats'] = f"{val}/{val}"
+                        
         return data
     except Exception as e:
         logger.error(f"Error parsing message with AI: {e}")

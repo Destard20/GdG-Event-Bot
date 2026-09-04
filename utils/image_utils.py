@@ -1,6 +1,7 @@
 import os
 import uuid
 from PIL import Image, ImageOps, ImageDraw, ImageFont
+from pilmoji import Pilmoji
 import logging
 import textwrap
 from datetime import datetime
@@ -113,73 +114,80 @@ def create_story_image(event_data, original_image_path, output_dir):
             y_text_start = 100
             
         # Draw Text
-        draw = ImageDraw.Draw(story_img)
-        
-        try:
-            # Try to load downloaded Roboto fonts, fallback to default if missing
-            font_bold = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Bold.ttf"), 50)
-            font_regular = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Regular.ttf"), 40)
-            font_desc = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Regular.ttf"), 35)
-        except Exception:
-            logger.warning("Could not load custom fonts, using default.")
-            font_bold = ImageFont.load_default()
-            font_regular = ImageFont.load_default()
-            font_desc = ImageFont.load_default()
+        with Pilmoji(story_img) as pilmoji:
+            try:
+                # Try to load downloaded Roboto fonts, fallback to default if missing
+                font_bold = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Bold.ttf"), 50)
+                font_regular = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Regular.ttf"), 40)
+                font_desc = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Regular.ttf"), 35)
+            except Exception:
+                logger.warning("Could not load custom fonts, using default.")
+                font_bold = ImageFont.load_default()
+                font_regular = ImageFont.load_default()
+                font_desc = ImageFont.load_default()
 
-        margin = 60
-        y = y_text_start
-        
-        # Helper function to draw wrapped text
-        def draw_wrapped_text(text, font, max_width_chars, y_pos, x_pos, color=(255, 255, 255)):
-            if not text: return y_pos
-            lines = textwrap.wrap(text, width=max_width_chars)
-            for line in lines:
-                draw.text((x_pos, y_pos), line, font=font, fill=color)
-                # Approximation of text height based on font size (as getsize is deprecated)
-                y_pos += font.size + 10
-            return y_pos
-
-        # Draw Title
-        title = event_data.get('title', 'Evento')
-        draw.text((margin, y), "Titolo: ", font=font_bold, fill=(200, 200, 200))
-        char_width_title = int((STORY_WIDTH - margin - 160 - margin) / (font_bold.size * 0.5))
-        y = draw_wrapped_text(title, font_bold, char_width_title, y, margin + 160, color=(255, 255, 255))
-        y += 20
-        
-        # Draw Details
-        booked = int(event_data.get('booked_seats', 0) or 0)
-        max_s = event_data.get('max_seats')
-        if max_s is None:
-            seats_display = f"Nessun limite (Prenotati: {booked})"
-        else:
-            max_s = int(max_s)
-            avail = max_s - booked
-            if avail <= 0:
-                seats_display = f"0/{max_s} Completo"
-            else:
-                seats_display = f"{avail}/{max_s}"
+            margin = 60
+            y = y_text_start
             
-        details = [
-            ("Data:", event_data.get('date', 'N/A')),
-            ("Sistema:", event_data.get('system', 'N/A')),
-            ("Posti:", seats_display)
-        ]
-        
-        for label, value in details:
-            if value and value != 'N/A':
-                draw.text((margin, y), label, font=font_bold, fill=(200, 200, 200))
-                char_width_val = int((STORY_WIDTH - margin - 200 - margin) / (font_regular.size * 0.5))
-                y = draw_wrapped_text(value, font_regular, char_width_val, y, margin + 200, color=(255, 255, 255))
-                y += 10
+            # Helper function to draw wrapped text preserving explicit newlines
+            def draw_wrapped_text(text, font, max_width_chars, y_pos, x_pos, color=(255, 255, 255)):
+                if not text: return y_pos
+                raw_lines = text.split('\n')
+                for r_line in raw_lines:
+                    r_line = r_line.strip()
+                    if not r_line:
+                        y_pos += int(font.size * 0.5)
+                        continue
+                    lines = textwrap.wrap(r_line, width=max_width_chars)
+                    for line in lines:
+                        pilmoji.text((x_pos, y_pos), line, font=font, fill=color)
+                        # Approximation of text height based on font size (as getsize is deprecated)
+                        y_pos += font.size + 10
+                return y_pos
+
+            # Draw Title
+            title = event_data.get('title', 'Evento')
+            title_text = f"📣 {title}"
+            char_width_title = int((STORY_WIDTH - (margin * 2)) / (font_bold.size * 0.5))
+            y = draw_wrapped_text(title_text, font_bold, char_width_title, y, margin, color=(255, 255, 255))
+            y += 20
+            
+            # Draw Details
+            max_s = event_data.get('max_seats')
+            if max_s is None:
+                seats_display = "Nessun limite"
+            else:
+                seats_display = str(max_s)
                 
-        y += 20
-        
-        # Draw Description
-        desc = event_data.get('description', '')
-        if desc:
-            # Approximate character width based on font size (very rough, usually 1.5-2 chars per font point)
-            char_width_wrap = int((STORY_WIDTH - (margin * 2)) / (font_desc.size * 0.5))
-            y = draw_wrapped_text(desc, font_desc, char_width_wrap, y, margin, color=(220, 220, 220))
+            details = [
+                ("📅 Data:", event_data.get('date', 'N/A')),
+                ("🎲 Sistema:", event_data.get('system', 'N/A')),
+                ("🪑 Posti:", seats_display)
+            ]
+            
+            for label, value in details:
+                if value and value != 'N/A':
+                    pilmoji.text((margin, y), label, font=font_bold, fill=(200, 200, 200))
+                    char_width_val = int((STORY_WIDTH - margin - 260 - margin) / (font_regular.size * 0.5))
+                    y = draw_wrapped_text(value, font_regular, char_width_val, y, margin + 260, color=(255, 255, 255))
+                    y += 10
+                    
+            y += 10
+            
+            # Draw Extra Info (Dettagli)
+            extra = (event_data.get('extra_info') or '').strip()
+            if extra:
+                pilmoji.text((margin, y), "🏷️ Dettagli:", font=font_bold, fill=(200, 200, 200))
+                y += font_bold.size + 10
+                char_width_extra = int((STORY_WIDTH - (margin * 2)) / (font_regular.size * 0.5))
+                y = draw_wrapped_text(extra, font_regular, char_width_extra, y, margin, color=(240, 240, 240))
+                y += 20
+                
+            # Draw Description
+            desc = (event_data.get('description') or '').strip()
+            if desc:
+                char_width_wrap = int((STORY_WIDTH - (margin * 2)) / (font_desc.size * 0.5))
+                y = draw_wrapped_text(f"📝 {desc}", font_desc, char_width_wrap, y, margin, color=(220, 220, 220))
 
         # Save
         daily_dir = get_daily_dir(output_dir, event_data.get('normalized_date'))
@@ -217,77 +225,82 @@ def create_recap_story_image(events, collage_path, date_str, output_dir):
             y_text_start = 100
             
         # Draw Text
-        draw = ImageDraw.Draw(story_img)
-        
-        try:
-            font_bold = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Bold.ttf"), 55)
-            font_regular = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Regular.ttf"), 45)
-            font_small = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Bold.ttf"), 38)
-        except Exception:
-            logger.warning("Could not load custom fonts, using default.")
-            font_bold = ImageFont.load_default()
-            font_regular = ImageFont.load_default()
-            font_small = ImageFont.load_default()
+        with Pilmoji(story_img) as pilmoji:
+            try:
+                font_bold = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Bold.ttf"), 55)
+                font_regular = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Regular.ttf"), 45)
+                font_small = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Bold.ttf"), 38)
+            except Exception:
+                logger.warning("Could not load custom fonts, using default.")
+                font_bold = ImageFont.load_default()
+                font_regular = ImageFont.load_default()
+                font_small = ImageFont.load_default()
 
-        margin = 60
-        y = y_text_start
-        
-        # Helper function to draw wrapped text
-        def draw_wrapped_text(text, font, max_width_chars, y_pos, x_pos, color=(255, 255, 255)):
-            if not text: return y_pos
-            lines = textwrap.wrap(text, width=max_width_chars)
-            for line in lines:
-                draw.text((x_pos, y_pos), line, font=font, fill=color)
-                y_pos += font.size + 15
-            return y_pos
+            margin = 60
+            y = y_text_start
+            
+            # Helper function to draw wrapped text
+            def draw_wrapped_text(text, font, max_width_chars, y_pos, x_pos, color=(255, 255, 255)):
+                if not text: return y_pos
+                raw_lines = text.split('\n')
+                for r_line in raw_lines:
+                    r_line = r_line.strip()
+                    if not r_line:
+                        y_pos += int(font.size * 0.5)
+                        continue
+                    lines = textwrap.wrap(r_line, width=max_width_chars)
+                    for line in lines:
+                        pilmoji.text((x_pos, y_pos), line, font=font, fill=color)
+                        y_pos += font.size + 15
+                return y_pos
 
-        # Draw Date
-        date_title = f"Proposte del {date_str}"
-        draw.text((margin, y), date_title, font=font_bold, fill=(255, 255, 255))
-        y += font_bold.size + 40
-        
-        # Draw Events
-        for ev in events:
-            sys_str = f" ({ev.get('system')})" if ev.get('system') else ""
+            # Draw Date
+            date_title = f"Proposte del {date_str}"
+            pilmoji.text((margin, y), date_title, font=font_bold, fill=(255, 255, 255))
+            y += font_bold.size + 40
             
-            booked = int(ev.get('booked_seats', 0) or 0)
-            max_s = ev.get('max_seats')
-            
-            if ev.get('status') == 'cancelled':
-                if max_s is None:
-                    seats_display = "0 (Nessun limite)"
-                else:
-                    seats_display = f"0/{max_s}"
-                text_line = f"❌ {ev.get('title')}{sys_str} : {seats_display} [ANNULLATO]"
-                color = (255, 100, 100)
-            else:
-                if max_s is None:
-                    seats_display = f"Nessun limite (Prenotati: {booked})"
-                else:
-                    max_s = int(max_s)
-                    avail = max_s - booked
-                    if avail <= 0:
-                        seats_display = f"0/{max_s} Completo"
-                    else:
-                        seats_display = f"{avail}/{max_s}"
-                text_line = f"• {ev.get('title')}{sys_str} : {seats_display}"
-                color = (220, 220, 220)
-            
-            char_width_val = int((STORY_WIDTH - margin * 2) / (font_regular.size * 0.55))
-            y = draw_wrapped_text(text_line, font_regular, char_width_val, y, margin, color=color)
-            y += 20
+            # Draw Events
+            for ev in events:
+                sys_str = f" ({ev.get('system')})" if ev.get('system') else ""
                 
-        # Draw bottom footer
-        footer = "Ci vediamo alle 20:45, alla Gilda del Grifone in Via Ada Negri 8/A, Torino!"
-        char_width_footer = int((STORY_WIDTH - margin * 2) / (font_small.size * 0.55))
-        
-        # Always place footer near the bottom
-        y_footer = STORY_HEIGHT - 200
-        # If the events list is very long and pushes past the footer, let it override or just use the current y
-        if y > y_footer - 50:
-            y_footer = y + 50
+                booked = int(ev.get('booked_seats', 0) or 0)
+                max_s = ev.get('max_seats')
+                
+                if ev.get('status') == 'cancelled':
+                    if max_s is None:
+                        seats_display = "0 (Nessun limite)"
+                    else:
+                        seats_display = f"0/{max_s}"
+                    text_line = f"❌ {ev.get('title')}{sys_str} : {seats_display} [ANNULLATO]"
+                    color = (255, 100, 100)
+                else:
+                    if max_s is None:
+                        seats_display = "Nessun limite" if booked == 0 else f"Nessun limite (Prenotati: {booked})"
+                    else:
+                        max_s = int(max_s)
+                        avail = max_s - booked
+                        if avail <= 0:
+                            seats_display = f"0/{max_s} Completo"
+                        else:
+                            seats_display = f"{avail}/{max_s}"
+                    text_line = f"• {ev.get('title')}{sys_str} : {seats_display}"
+                    color = (220, 220, 220)
+                
+                char_width_val = int((STORY_WIDTH - margin * 2) / (font_regular.size * 0.55))
+                y = draw_wrapped_text(text_line, font_regular, char_width_val, y, margin, color=color)
+                y += 20
+                    
+            # Draw bottom footer
+            footer = "Ci vediamo alle 20:45, alla Gilda del Grifone in Via Ada Negri 8/A, Torino!"
+            char_width_footer = int((STORY_WIDTH - margin * 2) / (font_small.size * 0.55))
             
-        draw_wrapped_text(footer, font_small, char_width_footer, y_footer, margin, color=(255, 200, 100))
+            # Always place footer near the bottom
+            y_footer = STORY_HEIGHT - 200
+            # If the events list is very long and pushes past the footer, let it override or just use the current y
+            if y > y_footer - 50:
+                y_footer = y + 50
+                
+            draw_wrapped_text(footer, font_small, char_width_footer, y_footer, margin, color=(255, 200, 100))
 
         # Save
         daily_dir = get_daily_dir(output_dir, date_str)

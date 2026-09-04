@@ -1,41 +1,81 @@
+import html
+
 def format_public_event_message(event_data):
     booked = int(event_data.get('booked_seats', 0) or 0)
     max_s = event_data.get('max_seats')
+    status = event_data.get('status', 'pending')
     
-    if max_s is None:
-        posti = f"Nessun limite (Prenotati: {booked})"
-    else:
-        max_s = int(max_s)
-        avail = max_s - booked
-        if avail <= 0:
-            posti = f"0/{max_s} Completo"
+    if status == 'cancelled':
+        if max_s is None:
+            posti = "0 (Nessun limite) [ANNULLATO]"
         else:
-            posti = f"{avail}/{max_s}"
+            posti = f"0/{max_s} [ANNULLATO]"
+        title = f"❌ [ANNULLATO] {event_data.get('title', 'Evento')}"
+    else:
+        if max_s is None:
+            if booked > 0:
+                posti = f"Nessun limite (Prenotati: {booked})"
+            else:
+                posti = "Nessun limite"
+        else:
+            max_s = int(max_s)
+            avail = max_s - booked
+            if avail <= 0:
+                posti = f"0/{max_s} Completo"
+            else:
+                posti = f"{avail}/{max_s}"
+        title = f"{event_data.get('title', 'Evento')}"
         
+    extra = (event_data.get('extra_info') or '').strip()
+    extra_block = f"\n🏷️ **Dettagli:**\n{extra}\n" if extra else ""
+
+    desc = (event_data.get('description') or '').strip()
+    desc_block = f"\n📝 {desc}" if desc else ""
+
     return (
-        f"📣 **{event_data.get('title', 'Evento')}**\n"
+        f"📣 **{title}**\n"
         f"📅 Data: {event_data.get('date', 'N/A')}\n"
         f"🎲 Sistema: {event_data.get('system', 'N/A')}\n"
-        f"👑 Master: {event_data.get('host', 'N/A')}\n"
-        f"🪑 Posti: {posti}\n\n"
-        f"📝 {event_data.get('description', '')}"
+        f"👑 Master: {event_data.get('host') or 'N/A'}\n"
+        f"🪑 Posti: {posti}\n"
+        f"{extra_block}"
+        f"{desc_block}"
     )
 
 def format_instagram_story(event_data):
+    max_s = event_data.get('max_seats')
+    
+    if max_s is None:
+        posti = "Nessun limite"
+    else:
+        posti = str(max_s)
+
+    host = event_data.get('host') or 'N/A'
+    extra = (event_data.get('extra_info') or '').strip()
+    extra_block = f"\n🏷️ Dettagli:\n{extra}\n" if extra else ""
+    desc = (event_data.get('description') or '').strip()
+    desc_block = f"\n{desc}" if desc else ""
+
     return (
         f"Titolo: {event_data.get('title', 'N/A')}\n"
         f"Data: {event_data.get('date', 'N/A')}\n"
         f"Sistema: {event_data.get('system', 'N/A')}\n"
-        f"Posti: {event_data.get('seats', 'N/A')}\n\n"
-        f"{event_data.get('description', '')}"
+        f"Master/Host: {host}\n"
+        f"Posti: {posti}\n"
+        f"{extra_block}"
+        f"{desc_block}"
     )
 
 def generate_recap_text(day_str, date_str, events):
-    header = f"Quali sono le proposte della Gilda del Grifone per questa sera, {day_str} {date_str}? \n\nEcco i giochi che portiamo:\nSe siete interessati a partecipare, e ci sono ancora posti, rispondete al messaggio dell'evento associato (guarda sotto i link per risparmiare tempo ed andare subito all'evento).\n\n"
+    header = (
+        f"Quali sono le proposte della Gilda del Grifone per stasera, {day_str} {date_str}? 🎲\n\n"
+        f"Ecco i tavoli in programma! Per prenotare un posto, clicca sul titolo del gioco e usa il pulsante ➕:\n\n"
+    )
     
     body = ""
     for ev in events:
-        sys_str = f" ({ev.get('system')})" if ev.get('system') else ""
+        sys_val = ev.get('system')
+        sys_str = f" ({html.escape(sys_val)})" if sys_val else ""
         
         booked = int(ev.get('booked_seats', 0) or 0)
         max_s = ev.get('max_seats')
@@ -50,23 +90,40 @@ def generate_recap_text(day_str, date_str, events):
             else:
                 seats_display = f"{avail}/{max_s}"
             
+        # Format title as HTML link if link exists
+        link = ev.get('message_link')
+        title = html.escape(ev.get('title') or 'Evento')
+        if link:
+            title_display = f"<a href='{link}'>{title}</a>"
+        else:
+            title_display = f"{title}"
+            
         if ev.get('status') == 'cancelled':
             if max_s is None:
                 seats_display = "0 (Nessun limite)"
             else:
                 seats_display = f"0/{max_s}"
-            body += f"- ❌ {ev.get('title')}{sys_str} : {seats_display} [ANNULLATO]\n\n"
+            body += f"- ❌ {title_display}{sys_str} : {seats_display} [ANNULLATO]\n\n"
         else:
-            body += f"- {ev.get('title')}{sys_str} : {seats_display}\n\n"
+            body += f"- {title_display}{sys_str} : {seats_display}\n\n"
         
-    footer = "Nessuna proposta è soddisfacente o il tavolo è già completo? Puoi venire ugualmente, abbiamo più di 400 giochi nei nostri armadi, oppure proporre tu direttamente una serata, mandandola a @Destard o @ManueleAbi! Qualora i dimostratori avessero necessità di annullare i tavoli per urgenze improvvise, possono segnalarlo ai medesimi.\n\nCi vediamo alle 20:45!"
+    footer = (
+        "Tutto pieno? Vieni lo stesso! Abbiamo oltre 400 giochi a disposizione. "
+        "Se invece vuoi proporre tu una serata, contatta @Destard o @ManueleAbi.\n\n"
+        "Ci vediamo alle 20:45! 🦅"
+    )
     
     full_text = header + body + footer
     
     if len(full_text) > 1024:
-        # TODO: Define slimmer template if needed
-        slim_header = f"Proposte di stasera, {day_str} {date_str}:\n\n"
-        slim_footer = "\nCi vediamo alle 20:45!"
+        slim_header = (
+            f"Proposte di stasera, {day_str} {date_str} 🎲\n"
+            f"Clicca sul titolo per andare all'evento e prenotarti:\n\n"
+        )
+        slim_footer = (
+            "\nVuoi proporre una serata? Scrivi a @Destard o @ManueleAbi.\n"
+            "Ci vediamo alle 20:45! 🦅"
+        )
         return slim_header + body + slim_footer
         
     return full_text

@@ -1,5 +1,24 @@
 # GdG_Telegram_ChatToSocial - Technical Specification & Architecture Guide
 
+## Table of Contents
+- [1. Project Overview](#1-project-overview)
+- [2. End-to-End Workflows](#2-end-to-end-workflows)
+  - [2.1. Event Ingestion & Interception](#21-event-ingestion--interception)
+  - [2.2. AI Parsing (`core/ai_parser.py`)](#22-ai-parsing-coreai_parserpy)
+  - [2.3. Admin Review & Approval (`bot/callbacks.py`)](#23-admin-review--approval-botcallbackspy)
+  - [2.4. Interactive Live Booking System](#24-interactive-live-booking-system)
+  - [2.5. Cancellation System](#25-cancellation-system)
+  - [2.6. Daily Recap Generation (`core/scheduler.py` & `bot/handlers.py`)](#26-daily-recap-generation-coreschedulerpy--bothandlerspy)
+  - [2.7. Post-Recap WordPress & Story Pipeline (`bot/callbacks.py`)](#27-post-recap-wordpress--story-pipeline-botcallbackspy)
+  - [2.8. Nightly Image Archiving (`core/scheduler.py` & `unzip_images.py`)](#28-nightly-image-archiving-coreschedulerpy--unzip_imagespy)
+- [3. Directory Structure](#3-directory-structure)
+- [4. Database Schema (SQLite: `bot_database.db`)](#4-database-schema-sqlite-bot_databasedb)
+- [5. Environment Variables (`.environments`)](#5-environment-variables-environments)
+- [6. Templates & Character Limit Handling](#6-templates--character-limit-handling)
+- [7. Instagram Story Publishing Status & Unpause Guide](#7-instagram-story-publishing-status--unpause-guide)
+
+---
+
 ## 1. Project Overview
 **GdG_Telegram_ChatToSocial** is a continuously running Python application designed for **Gilda del Grifone**, a tabletop games association based in Turin (Italy).
 
@@ -26,6 +45,9 @@ The system automates the ingestion, standardization, social sharing, and booking
 2. **Manual Ingestion (`/process_event`):**
    - An admin can send an image with text to `ADMIN_CHAT_ID` and reply `/process_event` (or include text in the command).
    - Operates through the identical parsing and review pipeline.
+3. **Monitoring Pause / Resume (`/pause`, `/resume`, `/bot_status`):**
+   - Admins can send `/pause` in `ADMIN_CHAT_ID` to make the bot temporarily "blind" to `PUBLIC_CHANNEL_ID` (it will not intercept, parse, or delete messages from the channel).
+   - Send `/resume` to re-enable interception, and `/bot_status` to check the current operational state.
 
 ### 2.2. AI Parsing (`core/ai_parser.py`)
 - Model configured via `GEMINI_MODEL` (default: `gemini-3.1-flash-lite`).
@@ -37,27 +59,30 @@ The system automates the ingestion, standardization, social sharing, and booking
   - `system` (string): Game system / genre (e.g. `Call of Cthulhu 7a Ed.`, `Board Game`).
   - `host` (string): Master/Host name or handle.
   - `seats` (string): Normalized string. If full, strictly `0/0 Completo`.
-  - `booked_seats` (int): Number of currently booked seats. Correctly calculates free vs booked:
-    - `Posti liberi: 3/3` -> `booked_seats: 0`, `max_seats: 3`.
+  - `booked_seats` (int): Number of currently booked seats. Correctly calculates free vs booked (free = X, max = Y, booked = Y - X):
+    - `Posti: 2/2` or `Posti liberi: 3/3` -> `booked_seats: 0`, `max_seats: 2` or `3`.
     - `Posti liberi: 2/4` -> `booked_seats: 2`, `max_seats: 4`.
     - `Posti liberi: 0/3 Completo` -> `booked_seats: 3`, `max_seats: 3`.
+    - A deterministic regex safety net validates `Posti [liberi]: X/Y` in `core/ai_parser.py`.
   - `max_seats` (int or null): Total maximum seats (`null` for no limit).
+  - `extra_info` (string): Additional details (difficulty/beginner friendliness, format/duration/campaign, trigger warnings/disclaimers/X-Card, genres).
   - `description` (string): Event pitch/synopsis.
 ### 2.3. Admin Review & Approval (`bot/callbacks.py`)
-- The parsed event is sent to `ADMIN_CHAT_ID` with inline keyboard buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
-- For privacy, the `Master/Host` field is omitted from social text and images.
+- First, the raw `original_text` of the event is sent to `ADMIN_CHAT_ID` as a separate message so admins can verify if the AI made any mistakes.
+- Then, the parsed event is sent to `ADMIN_CHAT_ID` with inline keyboard buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
+- For privacy, the `Master/Host` field is omitted from generated Instagram Story images, but is displayed in the admin review message and the public channel post.
 - **[Discard]:** Deletes the local event image, updates DB status to `discarded`, updates message to `❌ DISCARDED`.
 - **[Cancel]:** Updates DB status to `cancelled`, updates message to `⚠️ ANNULLATO`.
 - **[Publish]:**
   1. Generates 1080x1920 Instagram Story image using `utils/image_utils.create_story_image()` and saves it in `[DATA_DIR]/YYYY/MM/DD/`.
   2. Sends the generated story image to `ADMIN_CHAT_ID` for review *(Meta Graph API publishing is currently commented out for testing; see section 6)*.
   3. Formats the official standardized public channel post using `utils/templates.format_public_event_post()`.
-  4. Posts the formatted message with the original image to `PUBLIC_CHANNEL_ID`, attaching the `[➕ Mi prenoto]` and `[➖ Tolgo prenotazione]` inline keyboard.
+  4. Posts the formatted message with the original image to `PUBLIC_CHANNEL_ID`, attaching the `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` inline keyboard.
   5. Updates DB with the public `telegram_message_id` and `message_link`.
   6. Leaves a persistent `[Cancel]` button under the admin review message so admins can cancel the event at any future point.
 
 ### 2.4. Interactive Live Booking System
-- **`[➕ Mi prenoto]` Callback (`book_<event_id>`):**
+- **`[➕ Prenoto posto]` Callback (`book_<event_id>`):**
   - Verifies event is not cancelled and seats are available (`booked_seats < max_seats`).
   - Increments reservation for `(event_id, user_id, username)` in `reservations` table.
   - Increments `booked_seats` in `events` table.
@@ -110,6 +135,12 @@ When `[Publish Recap]` is clicked:
 4. **WordPress One-Click Publish:**
    - Clicking `[Pubblica su WordPress]` changes post status from `draft` to `publish` via REST API.
 
+### 2.8. Nightly Image Archiving (`core/scheduler.py` & `unzip_images.py`)
+- Automatically runs daily at **23:59** via APScheduler.
+- Checks today's folder (`[DATA_DIR]/YYYY/MM/DD/`) for images (`.jpg`, `.jpeg`, `.png`, `.webp`).
+- Compresses them into `archive.zip` inside the same folder and removes the original loose image files to save disk space.
+- Utility script `unzip_images.py` allows restoring images from `archive.zip` by specifying a folder, date, or date range.
+
 ---
 
 ## 3. Directory Structure
@@ -140,6 +171,7 @@ GdG_Telegram_ChatToSocial/
 ├── .environments         # Environment configuration (secrets, tokens, IDs) - GIT IGNORED
 ├── .gitignore            # Git rules ignoring .environments, __pycache__, and data contents
 ├── clean_db.py           # Utility script to wipe database tables and clean image folders
+├── unzip_images.py       # Utility script to extract archived images by directory or date range
 ├── test_ig.py            # Diagnostic script to test Meta Graph API tokens
 ├── requirements.txt      # Python dependencies
 ├── main.py               # Application entry point
@@ -164,6 +196,7 @@ GdG_Telegram_ChatToSocial/
 | `booked_seats` | INTEGER | DEFAULT 0 | Count of currently reserved seats |
 | `max_seats` | INTEGER | | Maximum capacity (NULL if unlimited) |
 | `description` | TEXT | | Event synopsis / description |
+| `extra_info` | TEXT | | Extra metadata (difficulty, warnings, format, tags) |
 | `original_text` | TEXT | | Raw Telegram message text |
 | `image_path` | TEXT | | Absolute or relative local path to original image |
 | `status` | TEXT | | `pending`, `approved`, `discarded`, `cancelled` |

@@ -39,7 +39,7 @@ def get_wp_publish_keyboard(post_id):
 def get_event_booking_keyboard(event_id):
     keyboard = [
         [
-            InlineKeyboardButton("➕ Mi prenoto", callback_data=f"book_{event_id}"),
+            InlineKeyboardButton("➕ Prenoto posto", callback_data=f"book_{event_id}"),
             InlineKeyboardButton("➖ Tolgo prenotazione", callback_data=f"unbook_{event_id}")
         ]
     ]

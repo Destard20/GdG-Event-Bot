@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 import logging
 from core.db import update_event_status, get_event, get_pending_events_for_recap, book_seat, unbook_seat, update_telegram_message_info
 from utils.image_utils import delete_local_image
-from core.config import PUBLIC_CHANNEL_ID
+from core.config import PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
 from utils.templates import format_public_event_message
 from bot.keyboards import get_event_booking_keyboard
 
@@ -61,17 +61,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from core.instagram import publish_instagram_story
             import json
             
-            # Since event_data was inserted as raw values, we construct a dict
-            event_data_dict = {
-                'title': event.get('title'),
-                'date': event.get('date'),
-                'system': event.get('system'),
-                'host': event.get('host'),
-                'seats': event.get('seats'),
-                'description': event.get('description')
-            }
-            
-            story_image_path = create_story_image(event_data_dict, event.get('image_path'), DATA_DIR)
+            story_image_path = create_story_image(event, event.get('image_path'), DATA_DIR)
             
             if story_image_path:
                 # [TEMPORARILY DISABLED] IG Publishing flow
@@ -117,6 +107,27 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=f"{query.message.caption}\n\n⚠️ ANNULLATO")
         except:
             await query.edit_message_text(text=f"{query.message.text}\n\n⚠️ ANNULLATO")
+            
+        event = get_event(event_id)
+        if event and event.get('telegram_message_id') and PUBLIC_CHANNEL_ID:
+            public_text = format_public_event_message(event)
+            try:
+                if event.get('image_path'):
+                    await context.bot.edit_message_caption(
+                        chat_id=PUBLIC_CHANNEL_ID,
+                        message_id=event['telegram_message_id'],
+                        caption=public_text,
+                        reply_markup=None
+                    )
+                else:
+                    await context.bot.edit_message_text(
+                        chat_id=PUBLIC_CHANNEL_ID,
+                        message_id=event['telegram_message_id'],
+                        text=public_text,
+                        reply_markup=None
+                    )
+            except Exception as e:
+                logger.error(f"Error updating public message on cancel: {e}")
         
     elif data.startswith("publish_recap_"):
         # Publish the message to the public channel here
@@ -242,22 +253,46 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 public_text = format_public_event_message(event)
                 pub_keyboard = get_event_booking_keyboard(event_id)
                 try:
-                    if event.get('image_path'):
-                        await query.edit_message_caption(caption=public_text, reply_markup=pub_keyboard)
-                    else:
-                        await query.edit_message_text(text=public_text, reply_markup=pub_keyboard)
+                    # Se cliccato nel canale originale, query.message è il messaggio del canale.
+                    # Se cliccato nel gruppo di discussione, query.message è il messaggio con i bottoni.
+                    # Per essere sicuri, aggiorniamo SEMPRE il messaggio nel PUBLIC_CHANNEL_ID.
+                    if PUBLIC_CHANNEL_ID and event.get('telegram_message_id'):
+                        try:
+                            if event.get('image_path'):
+                                await context.bot.edit_message_caption(
+                                    chat_id=PUBLIC_CHANNEL_ID,
+                                    message_id=event['telegram_message_id'],
+                                    caption=public_text,
+                                    reply_markup=pub_keyboard
+                                )
+                            else:
+                                await context.bot.edit_message_text(
+                                    chat_id=PUBLIC_CHANNEL_ID,
+                                    message_id=event['telegram_message_id'],
+                                    text=public_text,
+                                    reply_markup=pub_keyboard
+                                )
+                        except Exception as e:
+                            logger.error(f"Error updating public channel message on book: {e}")
+                            # Fallback to updating the current message if it's the original one
+                            if str(query.message.chat_id) == str(PUBLIC_CHANNEL_ID):
+                                if event.get('image_path'):
+                                    await query.edit_message_caption(caption=public_text, reply_markup=pub_keyboard)
+                                else:
+                                    await query.edit_message_text(text=public_text, reply_markup=pub_keyboard)
                 except Exception as e:
                     logger.error(f"Error updating message on book: {e}")
                 
                 # Send a notification reply
                 try:
+                    notify_chat = int(DISCUSSION_GROUP_ID) if DISCUSSION_GROUP_ID else query.message.chat_id
                     await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"✅ @{username} ha prenotato 1 posto!",
-                        reply_to_message_id=query.message.message_id
+                        chat_id=notify_chat,
+                        text=f"✅ @{username} ha prenotato 1 posto per: {event.get('title', 'Evento')}\n{event.get('message_link', '')}",
+                        disable_web_page_preview=True
                     )
-                except:
-                    pass
+                except Exception as e:
+                    logger.error(f"Error sending notification on book: {e}")
 
     elif data.startswith("unbook_"):
         event_id = int(data.split("_")[1])
@@ -273,20 +308,44 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 public_text = format_public_event_message(event)
                 pub_keyboard = get_event_booking_keyboard(event_id)
                 try:
-                    if event.get('image_path'):
-                        await query.edit_message_caption(caption=public_text, reply_markup=pub_keyboard)
-                    else:
-                        await query.edit_message_text(text=public_text, reply_markup=pub_keyboard)
+                    # Se cliccato nel canale originale, query.message è il messaggio del canale.
+                    # Se cliccato nel gruppo di discussione, query.message è il messaggio con i bottoni.
+                    # Per essere sicuri, aggiorniamo SEMPRE il messaggio nel PUBLIC_CHANNEL_ID.
+                    if PUBLIC_CHANNEL_ID and event.get('telegram_message_id'):
+                        try:
+                            if event.get('image_path'):
+                                await context.bot.edit_message_caption(
+                                    chat_id=PUBLIC_CHANNEL_ID,
+                                    message_id=event['telegram_message_id'],
+                                    caption=public_text,
+                                    reply_markup=pub_keyboard
+                                )
+                            else:
+                                await context.bot.edit_message_text(
+                                    chat_id=PUBLIC_CHANNEL_ID,
+                                    message_id=event['telegram_message_id'],
+                                    text=public_text,
+                                    reply_markup=pub_keyboard
+                                )
+                        except Exception as e:
+                            logger.error(f"Error updating public channel message on unbook: {e}")
+                            # Fallback to updating the current message if it's the original one
+                            if str(query.message.chat_id) == str(PUBLIC_CHANNEL_ID):
+                                if event.get('image_path'):
+                                    await query.edit_message_caption(caption=public_text, reply_markup=pub_keyboard)
+                                else:
+                                    await query.edit_message_text(text=public_text, reply_markup=pub_keyboard)
                 except Exception as e:
                     logger.error(f"Error updating message on unbook: {e}")
                 
                 # Send a notification reply
                 try:
+                    notify_chat = int(DISCUSSION_GROUP_ID) if DISCUSSION_GROUP_ID else query.message.chat_id
                     await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"❌ @{username} ha liberato 1 posto!",
-                        reply_to_message_id=query.message.message_id
+                        chat_id=notify_chat,
+                        text=f"❌ @{username} ha liberato 1 posto per: {event.get('title', 'Evento')}\n{event.get('message_link', '')}",
+                        disable_web_page_preview=True
                     )
-                except:
-                    pass
+                except Exception as e:
+                    logger.error(f"Error sending notification on unbook: {e}")
 

@@ -10,6 +10,7 @@ else:
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 PUBLIC_CHANNEL_ID = os.getenv("PUBLIC_CHANNEL_ID")
+DISCUSSION_GROUP_ID = os.getenv("DISCUSSION_GROUP_ID")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")

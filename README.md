@@ -6,10 +6,27 @@ This application monitors a Telegram channel, extracts event information using *
 
 ---
 
+## Table of Contents
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration (`.environments`)](#configuration-environments)
+- [Running the Application](#running-the-application)
+- [Telegram Commands & Workflow](#telegram-commands--workflow)
+  - [1. New Event Flow](#1-new-event-flow)
+  - [2. Live Seat Booking](#2-live-seat-booking)
+  - [3. Daily Recap Flow](#3-daily-recap-flow)
+  - [4. Admin Event Editing (Reply Commands)](#4-admin-event-editing-reply-commands)
+  - [5. Bot Control Commands](#5-bot-control-commands)
+- [Storage & Folder Structure](#storage--folder-structure)
+- [Maintenance & Diagnostic Scripts](#maintenance--diagnostic-scripts)
+
+---
+
 ## Features
 
 - **Automated Telegram Channel Interception:** Listens to the public announcement channel. When an admin posts a game event with an image, the bot intercepts it, deletes the raw post, parses the content with Gemini AI, and routes it to an admin review chat.
-- **Interactive Live Booking System:** Published events feature inline `[➕ Mi prenoto]` and `[➖ Tolgo prenotazione]` buttons. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically.
+- **Interactive Live Booking System:** Published events feature inline `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` buttons. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically.
 - **Event Cancellation:** Admins can cancel any event at any time using a persistent `[Cancel]` button. Cancelled events update live in the channel and are flagged as `[ANNULLATO]` with zero seats in recaps and graphics.
 - **Daily Recaps & Multi-Image Collages:** Automatically runs at 18:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/generate_recap`. Stitches event artwork into clean horizontal collages without cropping borders.
 - **Instagram Story Generator:** Programmatically builds 1080x1920 Instagram Story cards for individual events and daily recaps using Pillow (handling top banner artwork, dynamic text wrapping, seat counters, and association location footers).
@@ -105,11 +122,11 @@ python3 main.py
 - **Channel Ingestion:** Admins post an announcement text with a picture to the public channel (`PUBLIC_CHANNEL_ID`).
 - **Auto-Interception:** The bot immediately deletes the raw post and parses the content via Gemini.
 - **Admin Review:** The parsed event is forwarded to `ADMIN_CHAT_ID` with buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
-- **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Mi prenoto]` and `[➖ Tolgo prenotazione]` to the public channel and generates the Instagram Story graphic locally.
+- **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` to the public channel and generates the Instagram Story graphic locally.
 - **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/process_event`.
 
 ### 2. Live Seat Booking
-- Users click `[➕ Mi prenoto]` on a channel post to reserve a seat.
+- Users click `[➕ Prenoto posto]` on a channel post to reserve a seat.
 - Clicks increment personal seat reservation count in SQLite.
 - The post message dynamically updates (`Posti: X/Y` or `0/Y Completo`), and the bot sends a reply to the post announcing the reservation.
 - Users click `[➖ Tolgo prenotazione]` to release reserved seats.
@@ -121,6 +138,24 @@ python3 main.py
 - **Review:** Admin reviews the collage and recap in Telegram with `[Publish Recap]` or `[Discard Recap]`.
 - **Publishing:** Clicking `[Publish Recap]` sends the recap message to the public channel, renders the recap Instagram Story, uploads images to WordPress, and creates a draft blog post.
 - **WordPress One-Click Live:** The bot returns the WordPress edit URL and a `[Pubblica su WordPress]` button to publish the post live immediately.
+
+### 4. Admin Event Editing (Reply Commands)
+In `ADMIN_CHAT_ID`, reply to any event announcement message (pending or already published) to update fields live in SQLite and edit the message in the channel:
+- `/edit_title <Titolo>`
+- `/edit_date <Data>`
+- `/edit_normalized_date <DD-MM-YYYY>`
+- `/edit_system <Sistema/Gioco>`
+- `/edit_host <Master o Host>`
+- `/edit_seats <X/Y, numero intero, oppure null>`
+- `/edit_booked <numero intero>`
+- `/edit_extra <Difficoltà, avvertenze, tag, oppure null per rimuovere>`
+- `/edit_description <Descrizione o sinossi>`
+
+### 5. Bot Control Commands
+In `ADMIN_CHAT_ID`:
+- `/pause`: Pauses public channel monitoring (bot becomes "blind" and will not intercept or delete events posted to the channel).
+- `/resume`: Resumes public channel monitoring.
+- `/bot_status`: Checks whether the bot is currently active or paused.
 
 ---
 
@@ -145,6 +180,22 @@ data/
 ---
 
 ## Maintenance & Diagnostic Scripts
+
+- **Unzip Archived Images:**
+  ```bash
+  # Unzip all archives in a folder (year, month, or day):
+  python3 unzip_images.py data/2026/09
+  python3 unzip_images.py 2026/09
+
+  # Unzip archives within a date range:
+  python3 unzip_images.py --start 01-09-2026 --end 10-09-2026
+
+  # Unzip for a specific date:
+  python3 unzip_images.py --date 04-09-2026
+
+  # Optionally delete the zip file after extraction:
+  python3 unzip_images.py data/2026/09 --delete-zip
+  ```
 
 - **Reset Database & Clean Images:**
   ```bash
