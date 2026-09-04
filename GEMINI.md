@@ -1,4 +1,4 @@
-# GdG_Telegram_ChatToSocial - Technical Specification & Architecture Guide
+# GdG-Event-Bot - Technical Specification & Architecture Guide
 
 ## Table of Contents
 - [1. Project Overview](#1-project-overview)
@@ -20,7 +20,7 @@
 ---
 
 ## 1. Project Overview
-**GdG_Telegram_ChatToSocial** is a continuously running Python application designed for **Gilda del Grifone**, a tabletop games association based in Turin (Italy).
+**GdG-Event-Bot** is a continuously running Python application designed for **Gilda del Grifone**, a tabletop games association based in Turin (Italy).
 
 The system automates the ingestion, standardization, social sharing, and booking management of tabletop gaming events:
 - Intercepts and parses unstructured event announcements from a Telegram public channel or admin chat using Google Gemini AI.
@@ -147,7 +147,7 @@ When `[Publish Recap]` is clicked:
 ## 3. Directory Structure
 
 ```text
-GdG_Telegram_ChatToSocial/
+GdG-Event-Bot/
 ├── bot/
 │   ├── __init__.py
 │   ├── handlers.py       # Message interceptors, command handlers (/event_process, /ep, /recap_generate, /rg)

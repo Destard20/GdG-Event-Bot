@@ -1,4 +1,4 @@
-# GdG_Telegram_ChatToSocial
+# GdG-Event-Bot
 
 Automated social media and event management bot for **Gilda del Grifone**, a tabletop gaming association based in Turin, Italy.
 
@@ -49,8 +49,8 @@ This application monitors a Telegram channel, extracts event information using *
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/Destard20/GdG_Telegram_ChatToSocial.git
-   cd GdG_Telegram_ChatToSocial
+   git clone https://github.com/Destard20/GdG-Event-Bot.git
+   cd GdG-Event-Bot
    ```
 
 2. **Create and activate a virtual environment:**
