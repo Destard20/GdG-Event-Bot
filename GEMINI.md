@@ -42,12 +42,12 @@ The system automates the ingestion, standardization, social sharing, and booking
      - If it is a new user/admin post, the bot **immediately deletes** the original unformatted message from the public channel.
      - The original image is downloaded and saved to `[DATA_DIR]/YYYY/MM/DD/` based on the event's parsed `normalized_date`.
      - The text is passed to `core/ai_parser.py`.
-2. **Manual Ingestion (`/process_event`):**
-   - An admin can send an image with text to `ADMIN_CHAT_ID` and reply `/process_event` (or include text in the command).
+2. **Manual Ingestion (`/event_process`):**
+   - An admin can send an image with text to `ADMIN_CHAT_ID` and reply `/event_process` (or include text in the command).
    - Operates through the identical parsing and review pipeline.
-3. **Monitoring Pause / Resume (`/pause`, `/resume`, `/bot_status`):**
-   - Admins can send `/pause` in `ADMIN_CHAT_ID` to make the bot temporarily "blind" to `PUBLIC_CHANNEL_ID` (it will not intercept, parse, or delete messages from the channel).
-   - Send `/resume` to re-enable interception, and `/bot_status` to check the current operational state.
+3. **Monitoring Pause / Resume (`/bot_pause`, `/bot_resume`, `/bot_status`):**
+   - Admins can send `/bot_pause` in `ADMIN_CHAT_ID` to make the bot temporarily "blind" to `PUBLIC_CHANNEL_ID` (it will not intercept, parse, or delete messages from the channel).
+   - Send `/bot_resume` to re-enable interception, and `/bot_status` to check the current operational state.
 
 ### 2.2. AI Parsing (`core/ai_parser.py`)
 - Model configured via `GEMINI_MODEL` (default: `gemini-3.1-flash-lite`).
@@ -103,7 +103,7 @@ The system automates the ingestion, standardization, social sharing, and booking
 ### 2.6. Daily Recap Generation (`core/scheduler.py` & `bot/handlers.py`)
 1. **Triggering:**
    - **Automatic:** Scheduled daily at **18:00** via APScheduler. Automatically checks if today is Monday, Wednesday, Friday, Saturday, or Sunday.
-   - **Manual:** Triggered via `/generate_recap` or `/generate_recap DD-MM-YYYY` (bypasses weekday check).
+   - **Manual:** Triggered via `/recap_generate` or `/recap_generate DD-MM-YYYY` (bypasses weekday check).
 2. **Data Aggregation:**
    - Queries `events` table for all `approved` and `cancelled` events where `normalized_date == date_str`.
 3. **Collage Assembly (`utils/image_utils.create_recap_collage`):**
@@ -149,7 +149,7 @@ When `[Publish Recap]` is clicked:
 GdG_Telegram_ChatToSocial/
 ├── bot/
 │   ├── __init__.py
-│   ├── handlers.py       # Message interceptors, command handlers (/process_event, /generate_recap)
+│   ├── handlers.py       # Message interceptors, command handlers (/event_process, /recap_generate)
 │   ├── callbacks.py      # Inline keyboard callback handlers (publish, discard, cancel, book, unbook, wp publish)
 │   └── keyboards.py      # Telegram inline keyboard layouts
 ├── core/

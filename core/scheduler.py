@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from core.db import get_pending_events_for_recap, mark_events_as_recap
 from utils.image_utils import create_collage
-from utils.templates import generate_recap_text
+from utils.templates import recap_generate_text
 from core.config import ADMIN_CHAT_ID, DATA_DIR
 from bot.keyboards import get_recap_approval_keyboard
 from core.ai_parser import generate_wordpress_article
@@ -40,7 +40,7 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False):
         return
         
     # generate text
-    recap_text = generate_recap_text(day_str, date_str, events)
+    recap_text = recap_generate_text(day_str, date_str, events)
     
     # generate collage
     image_paths = [ev['image_path'] for ev in events if ev['image_path']]

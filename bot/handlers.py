@@ -80,7 +80,7 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_event_extraction(text, image_bytes, context, message_link, message.message_id)
         
 async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This responds to /process_event
+    # This responds to /event_process
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         await update.message.reply_text("Non sei autorizzato.")
         return
@@ -199,7 +199,7 @@ async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAUL
     except Exception as e:
         logger.error(f"Error sending booking buttons to discussion group: {e}")
 
-async def edit_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         return
         
@@ -230,15 +230,15 @@ async def edit_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     value = text_parts[1] if len(text_parts) > 1 else ""
     
     field_map = {
-        "/edit_title": "title",
-        "/edit_date": "date",
-        "/edit_normalized_date": "normalized_date",
-        "/edit_system": "system",
+        "/event_edit_title": "title",
+        "/event_edit_date": "date",
+        "/event_edit_normalized_date": "normalized_date",
+        "/event_edit_system": "system",
         "/edit_seats": "seats",
-        "/edit_booked": "booked_seats",
-        "/edit_host": "host",
-        "/edit_extra": "extra_info",
-        "/edit_description": "description"
+        "/event_edit_booked": "booked_seats",
+        "/event_edit_host": "host",
+        "/event_edit_extra": "extra_info",
+        "/event_edit_description": "description"
     }
     
     field = field_map.get(cmd)

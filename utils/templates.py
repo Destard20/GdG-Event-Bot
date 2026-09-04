@@ -66,7 +66,7 @@ def format_instagram_story(event_data):
         f"{desc_block}"
     )
 
-def generate_recap_text(day_str, date_str, events):
+def recap_generate_text(day_str, date_str, events):
     header = (
         f"Quali sono le proposte della Gilda del Grifone per stasera, {day_str} {date_str}? 🎲\n\n"
         f"Ecco i tavoli in programma! Per prenotare un posto, clicca sul titolo del gioco e usa il pulsante ➕:\n\n"

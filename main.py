@@ -7,7 +7,7 @@ from core.config import TELEGRAM_BOT_TOKEN, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_
 from core.db import init_db
 from bot.handlers import (
     process_message, manual_trigger_command, manual_recap_command, 
-    handle_discussion_forward, edit_event_command, pause_command, 
+    handle_discussion_forward, event_edit_command, pause_command, 
     resume_command, bot_status_command
 )
 from bot.callbacks import handle_approval
@@ -47,15 +47,15 @@ def main():
     )
     
     # Handlers for admin commands
-    application.add_handler(CommandHandler("process_event", manual_trigger_command))
-    application.add_handler(CommandHandler("generate_recap", manual_recap_command))
-    application.add_handler(CommandHandler("pause", pause_command))
+    application.add_handler(CommandHandler("event_process", manual_trigger_command))
+    application.add_handler(CommandHandler("recap_generate", manual_recap_command))
+    application.add_handler(CommandHandler("bot_pause", pause_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("bot_status", bot_status_command))
     
-    edit_cmds = ["edit_title", "edit_date", "edit_normalized_date", "edit_system", "edit_seats", "edit_booked", "edit_host", "edit_extra", "edit_description"]
+    edit_cmds = ["event_edit_title", "event_edit_date", "event_edit_normalized_date", "event_edit_system", "edit_seats", "event_edit_booked", "event_edit_host", "event_edit_extra", "event_edit_description"]
     for cmd in edit_cmds:
-        application.add_handler(CommandHandler(cmd, edit_event_command))
+        application.add_handler(CommandHandler(cmd, event_edit_command))
     
     # Listen to public channel
     if PUBLIC_CHANNEL_ID:

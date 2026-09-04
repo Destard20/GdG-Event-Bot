@@ -156,8 +156,8 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             day_str = days_it.get(now.strftime("%A"), now.strftime("%A"))
             
-            from utils.templates import generate_recap_text
-            recap_text = generate_recap_text(day_str, date_str, events)
+            from utils.templates import recap_generate_text
+            recap_text = recap_generate_text(day_str, date_str, events)
             
             from core.ai_parser import generate_wordpress_article
             from core.wordpress import publish_article, upload_media
