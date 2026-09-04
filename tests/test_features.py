@@ -1,0 +1,1365 @@
+import os
+import tempfile
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
+import core.db as db
+from bot.keyboards import (
+    get_approval_keyboard,
+    get_approved_event_keyboard,
+    get_cancelled_event_keyboard,
+    get_subscribers_management_keyboard,
+)
+from bot.callbacks import (
+    format_subscribers_tags,
+    format_subscribers_management_view,
+    send_cancellation_notice,
+    send_reactivation_notice,
+    handle_approval,
+)
+from bot.handlers import (
+    event_sub_add_command,
+    event_sub_remove_command,
+    event_edit_command,
+    manual_recap_command,
+    handle_event_extraction,
+    handle_admin_reply,
+    handle_discussion_forward,
+)
+from core.scheduler import generate_daily_recap
+from bot.service import (
+    send_admin_action_notice,
+    handle_seat_booking,
+    handle_seat_unbooking,
+    format_conflict_warning_message,
+    send_conflict_warning,
+)
+from datetime import date, datetime
+from utils.templates import (
+    format_event_title_link,
+    recap_generate_text,
+    recap_links_text,
+)
+from utils.date_utils import (
+    parse_user_date,
+    format_standard_event_date,
+    validate_event_date_anomalies,
+)
+
+
+class TestSubscriberManagement(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.test_db_path = os.path.join(self.temp_dir.name, "test_events.db")
+        self.orig_db_path = db.DB_PATH
+        db.DB_PATH = self.test_db_path
+        db.init_db()
+
+        self.event_data = {
+            "title": "Avventura D&D",
+            "date": "Venerdì 21:00",
+            "normalized_date": "2026-09-05",
+            "system": "D&D 5e",
+            "host": "Master John",
+            "seats": "4/5",
+            "booked_seats": 1,
+            "max_seats": 5,
+            "description": "Una grande avventura",
+            "status": "approved",
+        }
+        self.event_id = db.insert_event(self.event_data, None, "test original text")
+        db.update_event_status(self.event_id, "approved")
+        # Add initial reservation
+        db.book_seat(self.event_id, 1001, "mario")
+
+    def tearDown(self):
+        db.DB_PATH = self.orig_db_path
+        self.temp_dir.cleanup()
+
+    def test_db_admin_subscribers(self):
+        subs = db.get_reservations_for_event(self.event_id)
+        self.assertEqual(len(subs), 1)
+        self.assertEqual(subs[0]["username"], "mario")
+        self.assertEqual(subs[0]["seats_booked"], 1)
+
+        # Admin adds new subscriber @luigi with 2 seats
+        ok, msg = db.admin_add_subscriber(self.event_id, "@luigi", seats=2)
+        self.assertTrue(ok)
+        subs = db.get_reservations_for_event(self.event_id)
+        self.assertEqual(len(subs), 2)
+        luigi = next(s for s in subs if s["username"] == "luigi")
+        self.assertEqual(luigi["seats_booked"], 2)
+
+        ev = db.get_event(self.event_id)
+        self.assertEqual(ev["booked_seats"], 4)
+        self.assertEqual(ev["seats"], "1/5")
+
+        # Admin adds 1 seat to luigi
+        ok, msg = db.admin_add_seat(self.event_id, luigi["id"])
+        self.assertTrue(ok)
+        ev = db.get_event(self.event_id)
+        self.assertEqual(ev["booked_seats"], 5)
+        self.assertEqual(ev["seats"], "0/5")
+
+        # Admin tries to add another seat beyond max_seats (5) -> should fail
+        ok, msg = db.admin_add_seat(self.event_id, luigi["id"])
+        self.assertFalse(ok)
+        self.assertIn("raggiunta", msg.lower())
+
+        # Admin tries to add subscriber beyond max_seats -> should fail
+        ok, msg = db.admin_add_subscriber(self.event_id, "toad", seats=1)
+        self.assertFalse(ok)
+        self.assertIn("superata", msg.lower())
+
+        # Admin removes 1 seat from luigi
+        ok, msg = db.admin_remove_seat(self.event_id, luigi["id"])
+        self.assertTrue(ok)
+        subs = db.get_reservations_for_event(self.event_id)
+        luigi = next(s for s in subs if s["username"] == "luigi")
+        self.assertEqual(luigi["seats_booked"], 2)
+
+        # Admin removes subscriber luigi completely
+        ok, msg = db.admin_remove_subscriber(self.event_id, "luigi")
+        self.assertTrue(ok)
+        subs = db.get_reservations_for_event(self.event_id)
+        self.assertEqual(len(subs), 1)
+    def test_keyboards_structure(self):
+        appr_kb = get_approval_keyboard(self.event_id)
+        self.assertEqual(len(appr_kb.inline_keyboard), 2)
+        self.assertEqual(appr_kb.inline_keyboard[1][0].callback_data, f"manage_subs_{self.event_id}")
+
+        approved_kb = get_approved_event_keyboard(self.event_id)
+        self.assertEqual(approved_kb.inline_keyboard[0][0].callback_data, f"cancel_event_{self.event_id}")
+        self.assertEqual(approved_kb.inline_keyboard[0][1].callback_data, f"manage_subs_{self.event_id}")
+
+        cancelled_kb = get_cancelled_event_keyboard(self.event_id)
+        self.assertEqual(cancelled_kb.inline_keyboard[0][0].callback_data, f"reactivate_event_{self.event_id}")
+        self.assertEqual(cancelled_kb.inline_keyboard[0][1].callback_data, f"manage_subs_{self.event_id}")
+
+        subs = db.get_reservations_for_event(self.event_id)
+        subs_kb = get_subscribers_management_keyboard(self.event_id, subs)
+        self.assertTrue(any("sub_inc_" in btn.callback_data for row in subs_kb.inline_keyboard for btn in row))
+        self.assertTrue(any("sub_dec_" in btn.callback_data for row in subs_kb.inline_keyboard for btn in row))
+
+    def test_subscriber_tags_formatting(self):
+        reservations = [
+            {"username": "alice", "user_id": 11},
+            {"username": "@bob", "user_id": 22},
+            {"username": "alice", "user_id": 11},
+            {"username": "", "user_id": 33},
+        ]
+        tags = format_subscribers_tags(reservations)
+        self.assertIn("@alice", tags)
+        self.assertIn("@bob", tags)
+        self.assertIn("tg://user?id=33", tags)
+        self.assertEqual(tags.count("@alice"), 1)
+
+    async def test_cancellation_and_reactivation_notifications(self):
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        ev = db.get_event(self.event_id)
+
+        with patch("bot.callbacks.DISCUSSION_GROUP_ID", "-100123456"):
+            await send_cancellation_notice(context, ev)
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertEqual(call_kwargs["chat_id"], -100123456)
+            self.assertIn("ANNULLATO", call_kwargs["text"])
+            self.assertIn("@mario", call_kwargs["text"])
+            self.assertIn("<b>Avventura D&amp;D</b>", call_kwargs["text"])
+            self.assertEqual(call_kwargs.get("parse_mode"), "HTML")
+            self.assertTrue(call_kwargs.get("disable_web_page_preview"))
+
+            # Test cancellation with message_link
+            ev_linked = dict(ev)
+            ev_linked["message_link"] = "https://t.me/c/123/456"
+            context.bot.send_message.reset_mock()
+            await send_cancellation_notice(context, ev_linked)
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn('<a href="https://t.me/c/123/456"><b>Avventura D&amp;D</b></a>', call_kwargs["text"])
+
+            context.bot.send_message.reset_mock()
+            await send_reactivation_notice(context, ev)
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn("RIATTIVATO", call_kwargs["text"])
+            self.assertIn("@mario", call_kwargs["text"])
+            self.assertIn("<b>Avventura D&amp;D</b>", call_kwargs["text"])
+            self.assertEqual(call_kwargs.get("parse_mode"), "HTML")
+            self.assertTrue(call_kwargs.get("disable_web_page_preview"))
+
+            # Test reactivation with message_link
+            context.bot.send_message.reset_mock()
+            await send_reactivation_notice(context, ev_linked)
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn('<a href="https://t.me/c/123/456"><b>Avventura D&amp;D</b></a>', call_kwargs["text"])
+
+            db.admin_remove_subscriber(self.event_id, "mario")
+            context.bot.send_message.reset_mock()
+            await send_cancellation_notice(context, ev)
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn("ANNULLATO", call_kwargs["text"])
+            self.assertNotIn("Iscritti avvisati", call_kwargs["text"])
+
+            context.bot.send_message.reset_mock()
+            await send_reactivation_notice(context, ev)
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn("RIATTIVATO", call_kwargs["text"])
+            self.assertNotIn("Iscritti prenotati", call_kwargs["text"])
+
+    def test_subscribers_management_view_bold_title(self):
+        ev = dict(self.event_data)
+        ev["id"] = self.event_id
+        ev["message_link"] = "https://t.me/c/123/456"
+        reservations = [{"username": "mario", "seats_booked": 1}]
+        view = format_subscribers_management_view(ev, reservations)
+        self.assertIn('📌 <a href="https://t.me/c/123/456"><b>Avventura D&amp;D</b></a>', view)
+
+        ev_no_link = dict(self.event_data)
+        ev_no_link["id"] = self.event_id
+        ev_no_link["message_link"] = None
+        view_no_link = format_subscribers_management_view(ev_no_link, reservations)
+        self.assertIn('📌 <b>Avventura D&amp;D</b>', view_no_link)
+
+    async def test_cancel_and_reactivate_callback_flow(self):
+        query = MagicMock()
+        query.data = f"cancel_event_{self.event_id}"
+        query.message.caption = "Post evento"
+        query.message.photo = True
+        query.edit_message_caption = AsyncMock()
+        query.answer = AsyncMock()
+
+        update = MagicMock()
+        update.callback_query = query
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.callbacks.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.callbacks.update_event_messages", AsyncMock()):
+            await handle_approval(update, context)
+            ev = db.get_event(self.event_id)
+            self.assertEqual(ev["status"], "cancelled")
+            query.edit_message_caption.assert_called_once()
+            call_kb = query.edit_message_caption.call_args[1]["reply_markup"]
+            self.assertTrue(any("reactivate_event_" in btn.callback_data for row in call_kb.inline_keyboard for btn in row))
+
+            query.data = f"reactivate_event_{self.event_id}"
+            query.edit_message_caption.reset_mock()
+            await handle_approval(update, context)
+            ev = db.get_event(self.event_id)
+            self.assertEqual(ev["status"], "approved")
+            query.edit_message_caption.assert_called_once()
+            call_kb = query.edit_message_caption.call_args[1]["reply_markup"]
+            self.assertTrue(any("cancel_event_" in btn.callback_data for row in call_kb.inline_keyboard for btn in row))
+
+    async def test_admin_commands(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.message.reply_to_message = None
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        context.args = [str(self.event_id), "@peach", "2"]
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            await event_sub_add_command(update, context)
+            update.message.reply_text.assert_called_once()
+            self.assertIn("registrato con successo", update.message.reply_text.call_args[0][0])
+            subs = db.get_reservations_for_event(self.event_id)
+            peach = next(s for s in subs if s["username"] == "peach")
+            self.assertEqual(peach["seats_booked"], 2)
+
+            update.message.reply_text.reset_mock()
+            context.args = [str(self.event_id), "@peach", "1"]
+            await event_sub_remove_command(update, context)
+            update.message.reply_text.assert_called_once()
+            self.assertIn("Rimossi 1 posto/i", update.message.reply_text.call_args[0][0])
+            subs = db.get_reservations_for_event(self.event_id)
+            peach = next(s for s in subs if s["username"] == "peach")
+            self.assertEqual(peach["seats_booked"], 1)
+
+            update.message.reply_to_message = MagicMock()
+            update.message.reply_to_message.text = f"✏️ Invia l'username Telegram, rispondendo a questo messaggio, da aggiungere all'evento #{self.event_id}"
+            update.message.text = "@daisy 1"
+            update.message.reply_text.reset_mock()
+            await handle_admin_reply(update, context)
+            update.message.reply_text.assert_called_once()
+            self.assertIn("registrato con successo", update.message.reply_text.call_args[0][0])
+            subs = db.get_reservations_for_event(self.event_id)
+            self.assertTrue(any(s["username"] == "daisy" for s in subs))
+
+    async def test_manage_subs_callbacks(self):
+        query = MagicMock()
+        query.data = f"manage_subs_{self.event_id}"
+        query.message.text = "Post text"
+        query.message.chat_id = 999
+        query.message.message_id = 123
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+
+        update = MagicMock()
+        update.callback_query = query
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        # 1. Open management view from event message
+        await handle_approval(update, context)
+        context.bot.send_message.assert_called_once()
+        msg_call = context.bot.send_message.call_args[1]
+        self.assertIn("Gestione Iscritti", msg_call["text"])
+        self.assertEqual(msg_call["reply_to_message_id"], 123)
+
+        # 2. Refresh view when on management message
+        query.message.text = "👥 Gestione Iscritti\n📌 Avventura D&D"
+        await handle_approval(update, context)
+        query.edit_message_text.assert_called_once()
+
+        # 3. sub_inc_
+        subs = db.get_reservations_for_event(self.event_id)
+        res_id = subs[0]["id"]
+        query.data = f"sub_inc_{self.event_id}_{res_id}"
+        query.edit_message_text.reset_mock()
+        with patch("bot.callbacks.update_event_messages", AsyncMock()):
+            await handle_approval(update, context)
+            query.edit_message_text.assert_called_once()
+            subs_after = db.get_reservations_for_event(self.event_id)
+            self.assertEqual(subs_after[0]["seats_booked"], 2)
+
+        # 4. sub_dec_
+        query.data = f"sub_dec_{self.event_id}_{res_id}"
+        query.edit_message_text.reset_mock()
+        with patch("bot.callbacks.update_event_messages", AsyncMock()):
+            await handle_approval(update, context)
+            query.edit_message_text.assert_called_once()
+            subs_after = db.get_reservations_for_event(self.event_id)
+            self.assertEqual(subs_after[0]["seats_booked"], 1)
+
+        # 5. sub_addnew_
+        query.data = f"sub_addnew_{self.event_id}"
+        context.bot.send_message.reset_mock()
+        await handle_approval(update, context)
+        context.bot.send_message.assert_called_once()
+        self.assertIn("Invia l'username Telegram, rispondendo a questo messaggio, da aggiungere", context.bot.send_message.call_args[1]["text"])
+
+        # 6. close_subs_
+        query.data = f"close_subs_{self.event_id}"
+        query.message.delete = AsyncMock()
+        await handle_approval(update, context)
+        query.message.delete.assert_called_once()
+
+    async def test_admin_commands_reply_mode(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        reply_msg = MagicMock()
+        reply_msg.reply_markup.inline_keyboard = [
+            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
+        ]
+        reply_msg.caption = None
+        reply_msg.text = None
+        reply_msg.message_id = 9999
+        update.message.reply_to_message = reply_msg
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        context.args = ["@bowser", "1"]
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            await event_sub_add_command(update, context)
+            update.message.reply_text.assert_called_once()
+            self.assertIn("registrato con successo", update.message.reply_text.call_args[0][0])
+            subs = db.get_reservations_for_event(self.event_id)
+            self.assertTrue(any(s["username"] == "bowser" for s in subs))
+
+            # Remove via reply
+            update.message.reply_text.reset_mock()
+            context.args = ["@bowser"]
+            await event_sub_remove_command(update, context)
+            update.message.reply_text.assert_called_once()
+            self.assertIn("Rimossi", update.message.reply_text.call_args[0][0])
+            subs = db.get_reservations_for_event(self.event_id)
+            self.assertFalse(any(s["username"] == "bowser" for s in subs))
+
+    async def test_send_admin_action_notice_direct(self):
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        ev = db.get_event(self.event_id)
+
+        admin_user = MagicMock()
+        admin_user.username = "head_admin"
+        admin_user.first_name = "Super"
+
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"):
+            # 1. Add single seat
+            await send_admin_action_notice(
+                context,
+                ev,
+                target_username="luigi",
+                action="add",
+                seats=1,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertEqual(call_kwargs["chat_id"], -100123456)
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("@head_admin", call_kwargs["text"])
+            self.assertIn("Aggiunto 1 posto", call_kwargs["text"])
+            self.assertIn("@luigi", call_kwargs["text"])
+
+            # 2. Add multiple seats
+            context.bot.send_message.reset_mock()
+            await send_admin_action_notice(
+                context,
+                ev,
+                target_username="toad",
+                action="add",
+                seats=3,
+                admin_user=None,
+            )
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("Aggiunti 3 posti", call_kwargs["text"])
+            self.assertIn("@toad", call_kwargs["text"])
+
+            # 3. Remove single seat
+            context.bot.send_message.reset_mock()
+            await send_admin_action_notice(
+                context,
+                ev,
+                target_username="luigi",
+                action="remove",
+                seats=1,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("Rimosso 1 posto", call_kwargs["text"])
+            self.assertIn("@luigi", call_kwargs["text"])
+
+            # 4. Remove multiple seats
+            context.bot.send_message.reset_mock()
+            await send_admin_action_notice(
+                context,
+                ev,
+                target_user_id=777,
+                action="remove",
+                seats=2,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("Rimossi 2 posti", call_kwargs["text"])
+            self.assertIn('tg://user?id=777', call_kwargs["text"])
+            self.assertIn('<b>Avventura D&amp;D</b>', call_kwargs["text"])
+
+            # 5. Add seat on event WITH message_link -> title should be bold and linked, not appended on new line
+            ev_with_link = dict(ev)
+            ev_with_link["message_link"] = "https://t.me/c/123/456"
+            context.bot.send_message.reset_mock()
+            await send_admin_action_notice(
+                context,
+                ev_with_link,
+                target_username="luigi",
+                action="add",
+                seats=1,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertIn('<a href="https://t.me/c/123/456"><b>Avventura D&amp;D</b></a>', call_kwargs["text"])
+            self.assertNotIn("\nhttps://t.me/c/123/456", call_kwargs["text"])
+
+    async def test_admin_action_notice_on_callback_queries(self):
+        query = MagicMock()
+        query.message.text = "👥 Gestione Iscritti\n📌 Avventura D&D"
+        query.message.chat_id = 999
+        query.message.message_id = 123
+        query.from_user.username = "table_master"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+
+        update = MagicMock()
+        update.callback_query = query
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        subs = db.get_reservations_for_event(self.event_id)
+        res_id = subs[0]["id"]
+
+        with patch("bot.callbacks.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.callbacks.update_event_messages", AsyncMock()):
+            # sub_inc_
+            query.data = f"sub_inc_{self.event_id}_{res_id}"
+            await handle_approval(update, context)
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertEqual(call_kwargs["chat_id"], -100123456)
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("@mario", call_kwargs["text"])
+            self.assertIn("Aggiunto 1 posto", call_kwargs["text"])
+
+            # sub_dec_
+            context.bot.send_message.reset_mock()
+            query.data = f"sub_dec_{self.event_id}_{res_id}"
+            await handle_approval(update, context)
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertEqual(call_kwargs["chat_id"], -100123456)
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("@mario", call_kwargs["text"])
+            self.assertIn("Rimosso 1 posto", call_kwargs["text"])
+
+    async def test_admin_action_notice_on_admin_commands(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.effective_user.username = "chief_admin"
+        update.message.reply_to_message = None
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        context.args = [str(self.event_id), "@wario", "2"]
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            # /event_sub_add
+            await event_sub_add_command(update, context)
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertEqual(call_kwargs["chat_id"], -100123456)
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("@wario", call_kwargs["text"])
+            self.assertIn("Aggiunti 2 posti", call_kwargs["text"])
+            self.assertIn("@chief_admin", call_kwargs["text"])
+
+            # /event_sub_remove
+            context.bot.send_message.reset_mock()
+            context.args = [str(self.event_id), "@wario", "1"]
+            await event_sub_remove_command(update, context)
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertEqual(call_kwargs["chat_id"], -100123456)
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("@wario", call_kwargs["text"])
+            self.assertIn("Rimosso 1 posto", call_kwargs["text"])
+
+            # handle_admin_reply ForceReply
+            context.bot.send_message.reset_mock()
+            update.message.reply_to_message = MagicMock()
+            update.message.reply_to_message.text = f"✏️ Invia l'username Telegram, rispondendo a questo messaggio, da aggiungere all'evento #{self.event_id}"
+            update.message.text = "@waluigi 1"
+            await handle_admin_reply(update, context)
+            context.bot.send_message.assert_called_once()
+            call_kwargs = context.bot.send_message.call_args[1]
+            self.assertEqual(call_kwargs["chat_id"], -100123456)
+            self.assertIn("admin degli eventi", call_kwargs["text"].lower())
+            self.assertIn("@waluigi", call_kwargs["text"])
+            self.assertIn("Aggiunto 1 posto", call_kwargs["text"])
+    def test_get_user_conflicting_events(self):
+        # self.event_id is on "2026-09-05" and mario (1001) is booked on it
+
+        # Event 2: Same day, approved
+        ev2_data = dict(self.event_data)
+        ev2_data["title"] = "Call of Cthulhu"
+        ev2_id = db.insert_event(ev2_data, None, "raw text")
+        db.update_event_status(ev2_id, "approved")
+
+        # Event 3: Different day ("2026-09-06"), approved
+        ev3_data = dict(self.event_data)
+        ev3_data["title"] = "Cyberpunk RED"
+        ev3_data["normalized_date"] = "2026-09-06"
+        ev3_id = db.insert_event(ev3_data, None, "raw text")
+        db.update_event_status(ev3_id, "approved")
+        db.book_seat(ev3_id, 1001, "mario")
+
+        # Event 4: Same day, but cancelled
+        ev4_data = dict(self.event_data)
+        ev4_data["title"] = "Vampire V5"
+        ev4_id = db.insert_event(ev4_data, None, "raw text")
+        db.update_event_status(ev4_id, "cancelled")
+        db.book_seat(ev4_id, 1001, "mario")
+
+        # Event 5: Same day, approved, but user unsubscribed
+        ev5_data = dict(self.event_data)
+        ev5_data["title"] = "Pathfinder 2e"
+        ev5_id = db.insert_event(ev5_data, None, "raw text")
+        db.update_event_status(ev5_id, "approved")
+        db.book_seat(ev5_id, 1001, "mario")
+        db.unbook_seat(ev5_id, 1001, "mario")
+
+        # Event 6: Same day written in DD-MM-YYYY format ("05-09-2026")
+        ev6_data = dict(self.event_data)
+        ev6_data["title"] = "Blades in the Dark"
+        ev6_data["normalized_date"] = "05-09-2026"
+        ev6_id = db.insert_event(ev6_data, None, "raw text")
+        db.update_event_status(ev6_id, "approved")
+
+        # Now test Mario subscribing to ev2:
+        conflicts = db.get_user_conflicting_events(ev2_id, user_id=1001, username="mario")
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]["id"], self.event_id)
+        self.assertEqual(conflicts[0]["title"], "Avventura D&D")
+
+        # Test Mario subscribing to ev6 (cross-format DD-MM-YYYY vs YYYY-MM-DD):
+        conflicts_ev6 = db.get_user_conflicting_events(ev6_id, user_id=1001, username="mario")
+        self.assertEqual(len(conflicts_ev6), 1)
+        self.assertEqual(conflicts_ev6[0]["id"], self.event_id)
+
+        # Test querying with only user_id or only username
+        conflicts_uid_only = db.get_user_conflicting_events(ev2_id, user_id=1001, username=None)
+        self.assertEqual(len(conflicts_uid_only), 1)
+        conflicts_uname_only = db.get_user_conflicting_events(ev2_id, user_id=None, username="@mario")
+        self.assertEqual(len(conflicts_uname_only), 1)
+
+        # Test self.event_id itself is excluded
+        conflicts_self = db.get_user_conflicting_events(self.event_id, user_id=1001, username="mario")
+        self.assertEqual(len(conflicts_self), 0)
+
+        # If Mario books ev2 as well, then queries for ev6 (a 3rd event that day):
+        db.book_seat(ev2_id, 1001, "mario")
+        conflicts_multi = db.get_user_conflicting_events(ev6_id, user_id=1001, username="mario")
+        self.assertEqual(len(conflicts_multi), 2)
+        conflict_ids = [c["id"] for c in conflicts_multi]
+        self.assertIn(self.event_id, conflict_ids)
+        self.assertIn(ev2_id, conflict_ids)
+
+    def test_format_conflict_warning_message(self):
+        user = MagicMock()
+        user.username = "mario"
+        user.first_name = "Mario"
+
+        ev1 = {
+            "title": "Avventura D&D",
+            "system": "D&D 5e",
+            "message_link": "https://t.me/c/123/456"
+        }
+        msg1 = format_conflict_warning_message(user, [ev1])
+        self.assertIn("⚠️ <b>Attenzione @mario:</b>", msg1)
+        self.assertIn("risulti già iscritto a un altro evento per la stessa data:", msg1)
+        self.assertIn('<a href="https://t.me/c/123/456"><b>Avventura D&amp;D</b></a>', msg1)
+        self.assertIn("D&amp;D 5e", msg1)
+        self.assertIn("La tua prenotazione è stata registrata regolarmente", msg1)
+        self.assertIn("liberare il posto", msg1)
+
+        ev2 = {
+            "title": "Call of Cthulhu",
+            "system": "Horror",
+            "message_link": ""
+        }
+        msg2 = format_conflict_warning_message(user, [ev1, ev2])
+        self.assertIn("⚠️ <b>Attenzione @mario:</b>", msg2)
+        self.assertIn("risulti già iscritto ad altri 2 eventi per la stessa data:", msg2)
+        self.assertIn('<a href="https://t.me/c/123/456"><b>Avventura D&amp;D</b></a>', msg2)
+        self.assertIn("<b>Call of Cthulhu</b>", msg2)
+        # User without username (first_name only)
+        user_no_uname = MagicMock()
+        user_no_uname.id = 2003
+        user_no_uname.username = None
+        user_no_uname.first_name = "Luigi"
+        msg3 = format_conflict_warning_message(user_no_uname, [ev1])
+        self.assertIn('<a href="tg://user?id=2003">Luigi</a>', msg3)
+
+
+    async def test_handle_seat_booking_conflict_warning(self):
+        # Create second event on the same day
+        ev2_data = dict(self.event_data)
+        ev2_data["title"] = "Call of Cthulhu"
+        ev2_data["message_link"] = "https://t.me/c/123/999"
+        ev2_id = db.insert_event(ev2_data, None, "raw text")
+        db.update_event_status(ev2_id, "approved")
+
+        # Setup mocks
+        user = MagicMock()
+        user.id = 1001
+        user.username = "mario"
+        user.first_name = "Mario"
+
+        query = MagicMock()
+        query.message.chat_id = -100123456
+        query.message.message_id = 555
+        query.answer = AsyncMock()
+
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        context.bot.edit_message_caption = AsyncMock()
+
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.PUBLIC_CHANNEL_ID", "-1007890"), \
+             patch("bot.service.update_event_messages", AsyncMock()):
+            # Mario books ev2 while already booked on self.event_id
+            await handle_seat_booking(ev2_id, user, query, context)
+
+            # Reservation succeeds as normal
+            res = db.get_reservation_by_user(ev2_id, user_id=1001)
+            self.assertIsNotNone(res)
+            self.assertEqual(res["seats_booked"], 1)
+
+            # Two messages should be sent to notify_chat:
+            # 1. The booking confirmation
+            # 2. The conflict warning
+            self.assertEqual(context.bot.send_message.call_count, 2)
+
+            first_call_args = context.bot.send_message.call_args_list[0][1]
+            self.assertIn("ha prenotato 1 posto", first_call_args["text"])
+            self.assertIn('<a href="https://t.me/c/123/999"><b>Call of Cthulhu</b></a>', first_call_args["text"])
+            self.assertNotIn("\nhttps://t.me/c/123/999", first_call_args["text"])
+            self.assertEqual(first_call_args["parse_mode"], "HTML")
+
+            second_call_args = context.bot.send_message.call_args_list[1][1]
+            self.assertIn("Attenzione @mario", second_call_args["text"])
+            self.assertIn("<b>Avventura D&amp;D</b>", second_call_args["text"])
+            self.assertIn("La tua prenotazione è stata registrata regolarmente", second_call_args["text"])
+
+    async def test_handle_seat_booking_no_conflict(self):
+        # Create a new user with no other bookings
+        user = MagicMock()
+        user.id = 2002
+        user.username = "peach"
+        user.first_name = "Peach"
+
+        query = MagicMock()
+        query.message.chat_id = -100123456
+        query.message.message_id = 556
+        query.answer = AsyncMock()
+
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.PUBLIC_CHANNEL_ID", "-1007890"), \
+             patch("bot.service.update_event_messages", AsyncMock()):
+            await handle_seat_booking(self.event_id, user, query, context)
+
+            # Reservation succeeds as normal
+            res = db.get_reservation_by_user(self.event_id, user_id=2002)
+            self.assertIsNotNone(res)
+            self.assertEqual(res["seats_booked"], 1)
+
+            # Only ONE message sent (the booking confirmation), NO warning
+            self.assertEqual(context.bot.send_message.call_count, 1)
+            call_args = context.bot.send_message.call_args[1]
+            self.assertIn("ha prenotato 1 posto", call_args["text"])
+            self.assertIn("<b>Avventura D&amp;D</b>", call_args["text"])
+            self.assertEqual(call_args["parse_mode"], "HTML")
+            self.assertNotIn("Attenzione", call_args["text"])
+
+    async def test_handle_seat_unbooking_formatting(self):
+        user = MagicMock()
+        user.id = 1001
+        user.username = "mario"
+        user.first_name = "Mario"
+
+        query = MagicMock()
+        query.message.chat_id = -100123456
+        query.message.message_id = 777
+        query.answer = AsyncMock()
+
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        ev2_data = dict(self.event_data)
+        ev2_data["title"] = "Call of Cthulhu"
+        ev2_data["message_link"] = "https://t.me/c/123/999"
+        ev2_id = db.insert_event(ev2_data, None, "raw text")
+        db.update_event_status(ev2_id, "approved")
+        db.book_seat(ev2_id, 1001, "mario")
+
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.PUBLIC_CHANNEL_ID", "-1007890"), \
+             patch("bot.service.update_event_messages", AsyncMock()):
+            await handle_seat_unbooking(ev2_id, user, query, context)
+
+            res = db.get_reservation_by_user(ev2_id, user_id=1001)
+            self.assertIsNone(res)
+
+            context.bot.send_message.assert_called_once()
+            call_args = context.bot.send_message.call_args[1]
+            self.assertIn("ha liberato 1 posto", call_args["text"])
+            self.assertIn('<a href="https://t.me/c/123/999"><b>Call of Cthulhu</b></a>', call_args["text"])
+            self.assertNotIn("\nhttps://t.me/c/123/999", call_args["text"])
+            self.assertEqual(call_args["parse_mode"], "HTML")
+
+    def test_recap_generate_text_event_titles_bold(self):
+        events = [
+            {
+                "title": "Avventura D&D",
+                "system": "D&D 5e",
+                "booked_seats": 2,
+                "max_seats": 5,
+                "status": "approved",
+            },
+            {
+                "title": "Cyberpunk Red",
+                "system": "Cyberpunk",
+                "booked_seats": 0,
+                "max_seats": 4,
+                "status": "cancelled",
+            },
+            {
+                "title": "One Shot Giochi Liberi",
+                "system": None,
+                "booked_seats": 3,
+                "max_seats": None,
+                "status": "approved",
+            },
+        ]
+        text = recap_generate_text("Venerdì", "05-09-2026", events)
+        self.assertIn("- <b>Avventura D&amp;D</b> (D&amp;D 5e) : 3/5", text)
+        self.assertIn("- ❌ <b>Cyberpunk Red</b> (Cyberpunk) : 0/4 [ANNULLATO]", text)
+        self.assertIn("- <b>One Shot Giochi Liberi</b> : Nessun limite (Prenotati: 3)", text)
+
+    def test_recap_links_text_event_titles_bold_and_linked(self):
+        events = [
+            {
+                "title": "Avventura D&D",
+                "system": "D&D 5e",
+                "message_link": "https://t.me/c/123/456",
+                "status": "approved",
+            },
+            {
+                "title": "Call of Cthulhu",
+                "system": "CoC",
+                "message_link": None,
+                "status": "approved",
+            },
+            {
+                "title": "Cancelled Event",
+                "system": "Test",
+                "message_link": "https://t.me/c/123/789",
+                "status": "cancelled",
+            },
+        ]
+        links_text = recap_links_text(events)
+        self.assertIn('- <a href="https://t.me/c/123/456"><b>Avventura D&amp;D</b></a> (D&amp;D 5e)', links_text)
+        self.assertIn('- <b>Call of Cthulhu</b> (CoC)', links_text)
+        self.assertNotIn("Cancelled Event", links_text)
+
+    async def test_publish_recap_does_not_send_links_to_event_channel(self):
+        update = MagicMock()
+        query = MagicMock()
+        query.data = "publish_recap_05-09-2026"
+        query.message.chat_id = 9999
+        query.message.message_id = 123
+        query.message.caption = "Recap caption"
+        query.message.text = None
+        query.answer = AsyncMock()
+        query.edit_message_caption = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        context = MagicMock()
+        pub_message = MagicMock()
+        pub_message.message_id = 777
+        context.bot.copy_message = AsyncMock(return_value=pub_message)
+        context.bot.send_message = AsyncMock()
+
+        test_events = [
+            {
+                "id": 1,
+                "title": "Avventura D&D",
+                "system": "D&D 5e",
+                "status": "approved",
+                "message_link": "https://t.me/c/123/456",
+                "image_path": None,
+            }
+        ]
+
+        with patch("bot.callbacks.PUBLIC_CHANNEL_ID", "-100111111"), \
+             patch("bot.callbacks.get_pending_events_for_recap", return_value=test_events), \
+             patch("core.ai_parser.generate_wordpress_article", return_value=None), \
+             patch("core.wordpress.upload_media", return_value=None), \
+             patch("utils.image_utils.create_collage", return_value=None), \
+             patch("utils.image_utils.create_recap_story_image", return_value=None):
+            await handle_approval(update, context)
+
+        # Confirm copy_message was sent to PUBLIC_CHANNEL_ID
+        context.bot.copy_message.assert_called_once_with(
+            chat_id="-100111111",
+            from_chat_id=9999,
+            message_id=123
+        )
+
+        # Confirm send_message was NEVER called for PUBLIC_CHANNEL_ID (no second links message in event channel)
+        for call in context.bot.send_message.call_args_list:
+            self.assertNotEqual(str(call.kwargs.get("chat_id")), "-100111111")
+
+        # Confirm bot.handlers last_recap_message_id is tracked for the discussion group forward
+        import bot.handlers
+        self.assertEqual(bot.handlers.last_recap_message_id, 777)
+        self.assertEqual(bot.handlers.last_recap_events, test_events)
+
+        # Simulate Telegram automatically forwarding the recap post into DISCUSSION_GROUP_ID
+        fwd_update = MagicMock()
+        fwd_msg = MagicMock()
+        fwd_msg.chat_id = -100222222
+        fwd_msg.message_id = 888
+        fwd_msg.is_automatic_forward = True
+        origin = MagicMock()
+        origin.type = "channel"
+        origin.message_id = 777
+        fwd_msg.forward_origin = origin
+        fwd_update.message = fwd_msg
+
+        context.bot.send_message.reset_mock()
+        await handle_discussion_forward(fwd_update, context)
+
+        # Confirm send_message WAS called for the discussion chat group with the links text
+        context.bot.send_message.assert_called_once()
+        fwd_call = context.bot.send_message.call_args[1]
+        self.assertEqual(fwd_call["chat_id"], -100222222)
+        self.assertEqual(fwd_call["reply_to_message_id"], 888)
+        self.assertIn("<b>Avventura D&amp;D</b>", fwd_call["text"])
+
+
+class TestDateUtils(unittest.TestCase):
+    def test_parse_user_date_valid(self):
+        # Without time (dash)
+        dt, has_time = parse_user_date("05-09-2026")
+        self.assertEqual(dt, datetime(2026, 9, 5, 0, 0))
+        self.assertFalse(has_time)
+
+        # Without time (slash, single digits)
+        dt, has_time = parse_user_date("5/9/2026")
+        self.assertEqual(dt, datetime(2026, 9, 5, 0, 0))
+        self.assertFalse(has_time)
+
+        # With time (dash)
+        dt, has_time = parse_user_date("05-09-2026 21:30")
+        self.assertEqual(dt, datetime(2026, 9, 5, 21, 30))
+        self.assertTrue(has_time)
+
+        # With time (slash)
+        dt, has_time = parse_user_date("05/09/2026 20:00")
+        self.assertEqual(dt, datetime(2026, 9, 5, 20, 0))
+        self.assertTrue(has_time)
+
+    def test_parse_user_date_invalid(self):
+        self.assertIsNone(parse_user_date("venerdi"))
+        self.assertIsNone(parse_user_date("tomorrow"))
+        self.assertIsNone(parse_user_date("31-02-2026"))  # Invalid day in Feb
+        self.assertIsNone(parse_user_date("05-13-2026"))  # Month 13
+        self.assertIsNone(parse_user_date("05-09-2026 25:00"))  # Hour 25
+        self.assertIsNone(parse_user_date(""))
+        self.assertIsNone(parse_user_date(None))
+
+    def test_format_standard_event_date(self):
+        # Sept 5, 2026 is Saturday (Sabato)
+        dt = datetime(2026, 9, 5, 21, 0)
+        disp, norm = format_standard_event_date(dt, has_time=True)
+        self.assertEqual(disp, "Sabato 05-09-2026 21:00")
+        self.assertEqual(norm, "05-09-2026")
+
+        # Sept 4, 2026 is Friday (Venerdì)
+        dt2 = datetime(2026, 9, 4, 0, 0)
+        disp2, norm2 = format_standard_event_date(dt2, has_time=False)
+        self.assertEqual(disp2, "Venerdì 04-09-2026")
+        self.assertEqual(norm2, "04-09-2026")
+
+    def test_validate_event_date_anomalies_future_valid(self):
+        # Sept 4, 2026 is Friday
+        ev = {"date": "Venerdì 04-09-2026 21:00", "normalized_date": "04-09-2026"}
+        warnings = validate_event_date_anomalies(ev, reference_date=date(2026, 9, 1))
+        self.assertEqual(warnings, [])
+
+    def test_validate_event_date_anomalies_past_date(self):
+        ev = {"date": "Lunedì 01-01-2024", "normalized_date": "01-01-2024"}
+        warnings = validate_event_date_anomalies(ev, reference_date=date(2026, 9, 1))
+        self.assertTrue(any("PASSATO" in w for w in warnings))
+
+    def test_validate_event_date_anomalies_weekday_mismatch_italian(self):
+        # Sept 4, 2026 is Friday, but date string says 'Sabato'
+        ev = {"date": "Sabato 04-09-2026 21:00", "normalized_date": "04-09-2026"}
+        warnings = validate_event_date_anomalies(ev, reference_date=date(2026, 9, 1))
+        self.assertTrue(any("Incongruenza data/giorno" in w for w in warnings))
+        self.assertTrue(any("Sabato" in w and "Venerdì" in w for w in warnings))
+
+    def test_validate_event_date_anomalies_weekday_mismatch_english(self):
+        # Sept 4, 2026 is Friday, but date string says 'Saturday'
+        ev = {"date": "Saturday 04 September 2026", "normalized_date": "04-09-2026"}
+        warnings = validate_event_date_anomalies(ev, reference_date=date(2026, 9, 1))
+        self.assertTrue(any("Incongruenza data/giorno" in w for w in warnings))
+        self.assertTrue(any("Sabato" in w and "Venerdì" in w for w in warnings))
+
+    def test_validate_event_date_anomalies_unparseable(self):
+        ev = {"date": "data da definirsi", "normalized_date": ""}
+        warnings = validate_event_date_anomalies(ev)
+        self.assertTrue(any("Impossibile determinare una data valida" in w for w in warnings))
+
+
+class TestDateEditingAndValidation(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.test_db_path = os.path.join(self.temp_dir.name, "test_events_date.db")
+        self.orig_db_path = db.DB_PATH
+        db.DB_PATH = self.test_db_path
+        db.init_db()
+
+        self.event_data = {
+            "title": "Tavolo GdR",
+            "date": "Venerdì 04-09-2026 21:00",
+            "normalized_date": "04-09-2026",
+            "system": "D&D 5e",
+            "host": "Master DM",
+            "seats": "4/4",
+            "max_seats": 4,
+            "booked_seats": 0,
+            "status": "pending",
+        }
+        self.event_id = db.insert_event(
+            self.event_data,
+            image_path=None,
+            original_text="Raw text",
+            message_link="https://t.me/c/123/1",
+            telegram_message_id=5001,
+        )
+
+    def tearDown(self):
+        db.DB_PATH = self.orig_db_path
+        self.temp_dir.cleanup()
+
+    async def test_event_edit_date_invalid_format_rejects(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        reply_msg = MagicMock()
+        reply_msg.reply_markup.inline_keyboard = [
+            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
+        ]
+        reply_msg.caption = None
+        reply_msg.text = "Event caption"
+        reply_msg.photo = False
+        update.message.reply_to_message = reply_msg
+        update.message.reply_text = AsyncMock()
+        update.message.text = "/event_edit_date domani sera"
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+            await event_edit_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        self.assertIn("Formato data non valido", update.message.reply_text.call_args[0][0])
+        ev = db.get_event(self.event_id)
+        # Event in DB must NOT be changed
+        self.assertEqual(ev["date"], "Venerdì 04-09-2026 21:00")
+        self.assertEqual(ev["normalized_date"], "04-09-2026")
+
+    async def test_event_edit_date_nonexistent_calendar_date_rejects(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        reply_msg = MagicMock()
+        reply_msg.reply_markup.inline_keyboard = [
+            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
+        ]
+        reply_msg.caption = None
+        reply_msg.text = "Event caption"
+        reply_msg.photo = False
+        update.message.reply_to_message = reply_msg
+        update.message.reply_text = AsyncMock()
+        update.message.text = "/event_edit_date 31-02-2026"
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+            await event_edit_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        self.assertIn("Formato data non valido", update.message.reply_text.call_args[0][0])
+        ev = db.get_event(self.event_id)
+        self.assertEqual(ev["normalized_date"], "04-09-2026")
+
+    async def test_event_edit_date_valid_dual_sync(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        reply_msg = MagicMock()
+        reply_msg.reply_markup.inline_keyboard = [
+            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
+        ]
+        reply_msg.caption = None
+        reply_msg.text = "Event caption"
+        reply_msg.photo = False
+        reply_msg.edit_text = AsyncMock()
+        update.message.reply_to_message = reply_msg
+        update.message.reply_text = AsyncMock()
+        # Sept 5, 2026 is Saturday (Sabato)
+        update.message.text = "/event_edit_date 05-09-2026 21:00"
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            await event_edit_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        self.assertIn("aggiornato con successo", update.message.reply_text.call_args[0][0])
+        ev = db.get_event(self.event_id)
+        # Date must have Italian weekday prepended and normalized_date synced
+        self.assertEqual(ev["date"], "Sabato 05-09-2026 21:00")
+        self.assertEqual(ev["normalized_date"], "05-09-2026")
+        reply_msg.edit_text.assert_called_once()
+
+    async def test_event_edit_normalized_date_command(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        reply_msg = MagicMock()
+        reply_msg.reply_markup.inline_keyboard = [
+            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
+        ]
+        reply_msg.caption = None
+        reply_msg.text = "Event caption"
+        reply_msg.photo = False
+        reply_msg.edit_text = AsyncMock()
+        update.message.reply_to_message = reply_msg
+        update.message.reply_text = AsyncMock()
+        update.message.text = "/event_edit_normalized_date 06-09-2026"
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            await event_edit_command(update, context)
+
+        ev = db.get_event(self.event_id)
+        self.assertEqual(ev["normalized_date"], "06-09-2026")
+
+        # Invalid format
+        update.message.reply_text.reset_mock()
+        update.message.text = "/event_edit_normalized_date invalid"
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+            await event_edit_command(update, context)
+        self.assertIn("Formato data normalizzata non valido", update.message.reply_text.call_args[0][0])
+
+    async def test_handle_event_extraction_past_date_warning_shown(self):
+        parsed_past = {
+            "is_event": True,
+            "title": "Vecchio Evento",
+            "date": "01-01-2024",
+            "normalized_date": "01-01-2024",
+            "system": "OSR",
+            "host": "Old Master",
+            "seats": "3/3",
+            "max_seats": 3,
+        }
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.handlers.parse_event_message", return_value=parsed_past), \
+             patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("utils.date_utils.date") as mock_date:
+            mock_date.today.return_value = date(2026, 9, 1)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+            await handle_event_extraction(
+                text="Evento 01-01-2024",
+                image_bytes=None,
+                context=context,
+                is_manual_trigger=True,
+            )
+
+        context.bot.send_message.assert_called_once()
+        sent_text = context.bot.send_message.call_args.kwargs.get("text", "")
+        self.assertIn("🚨 ATTENZIONE ANOMALIE DATA:", sent_text)
+        self.assertIn("PASSATO", sent_text)
+
+    async def test_handle_event_extraction_weekday_mismatch_warning_shown(self):
+        # Sept 4, 2026 is Friday, but date says "Sabato 04-09-2026"
+        parsed_mismatch = {
+            "is_event": True,
+            "title": "Evento Sabato",
+            "date": "Sabato 04-09-2026",
+            "normalized_date": "04-09-2026",
+            "system": "OSR",
+            "host": "Master",
+            "seats": "3/3",
+            "max_seats": 3,
+        }
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.handlers.parse_event_message", return_value=parsed_mismatch), \
+             patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("utils.date_utils.date") as mock_date:
+            mock_date.today.return_value = date(2026, 9, 1)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+            await handle_event_extraction(
+                text="Evento Sabato 04-09-2026",
+                image_bytes=None,
+                context=context,
+                is_manual_trigger=True,
+            )
+
+        context.bot.send_message.assert_called_once()
+        sent_text = context.bot.send_message.call_args.kwargs.get("text", "")
+        self.assertIn("🚨 ATTENZIONE ANOMALIE DATA:", sent_text)
+        self.assertIn("Incongruenza data/giorno", sent_text)
+        self.assertIn("Sabato", sent_text)
+        self.assertIn("Venerdì", sent_text)
+
+    async def test_event_edit_date_clears_date_anomaly_warning(self):
+        # Initial event has mismatch
+        db.update_event_field(self.event_id, "date", "Sabato 04-09-2026")
+        db.update_event_field(self.event_id, "normalized_date", "04-09-2026")
+
+        update = MagicMock()
+        update.effective_chat.id = 999
+        reply_msg = MagicMock()
+        reply_msg.reply_markup.inline_keyboard = [
+            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
+        ]
+        reply_msg.caption = None
+        reply_msg.text = "🚨 ATTENZIONE ANOMALIE DATA:\n..."
+        reply_msg.photo = False
+        reply_msg.edit_text = AsyncMock()
+        update.message.reply_to_message = reply_msg
+        update.message.reply_text = AsyncMock()
+
+        # Admin corrects date to a valid future date
+        update.message.text = "/event_edit_date 04-09-2026 21:00"
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()), \
+             patch("utils.date_utils.date") as mock_date:
+            mock_date.today.return_value = date(2026, 9, 1)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+
+            await event_edit_command(update, context)
+
+        reply_msg.edit_text.assert_called_once()
+        edited_text = reply_msg.edit_text.call_args.kwargs.get("text", "")
+        # Warning must be completely gone
+        self.assertNotIn("🚨 ATTENZIONE ANOMALIE DATA:", edited_text)
+        self.assertIn("Data: Venerdì 04-09-2026 21:00", edited_text)
+
+    async def test_manual_recap_command_no_events_today(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.message.message_id = 777
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = []
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("core.scheduler.ADMIN_CHAT_ID", "999"):
+            await manual_recap_command(update, context)
+
+        context.bot.send_message.assert_called_once()
+        call_kwargs = context.bot.send_message.call_args.kwargs
+        self.assertEqual(call_kwargs["chat_id"], "999")
+        self.assertEqual(call_kwargs["text"], "Nessun evento in programma per oggi.")
+        self.assertEqual(call_kwargs["reply_to_message_id"], 777)
+        update.message.reply_text.assert_not_called()
+
+    async def test_manual_recap_command_no_events_reply_exception_fallback(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.message.message_id = 777
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = []
+        context.bot.send_message = AsyncMock(side_effect=[Exception("Message not found"), None])
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("core.scheduler.ADMIN_CHAT_ID", "999"):
+            await manual_recap_command(update, context)
+
+        # First attempt with reply_to_message_id failed, second fallback attempt without it succeeded
+        self.assertEqual(context.bot.send_message.call_count, 2)
+        fallback_kwargs = context.bot.send_message.call_args.kwargs
+        self.assertEqual(fallback_kwargs["chat_id"], "999")
+        self.assertEqual(fallback_kwargs["text"], "Nessun evento in programma per oggi.")
+        self.assertNotIn("reply_to_message_id", fallback_kwargs)
+
+    async def test_manual_recap_command_no_events_specific_date(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.message.message_id = 778
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = ["15-09-2026"]
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("core.scheduler.ADMIN_CHAT_ID", "999"):
+            await manual_recap_command(update, context)
+
+        context.bot.send_message.assert_called_once()
+        call_kwargs = context.bot.send_message.call_args.kwargs
+        self.assertEqual(call_kwargs["chat_id"], "999")
+        self.assertEqual(call_kwargs["text"], "Nessun evento in programma per la data 15-09-2026.")
+        self.assertEqual(call_kwargs["reply_to_message_id"], 778)
+        update.message.reply_text.assert_not_called()
+
+    async def test_manual_recap_command_invalid_date_format(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = ["not-a-valid-date"]
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+            await manual_recap_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        self.assertIn("Formato data non valido", update.message.reply_text.call_args[0][0])
+
+    async def test_manual_recap_command_with_events_today(self):
+        today_str = datetime.now().strftime("%d-%m-%Y")
+        today_ev = {
+            "title": "Partita di Oggi",
+            "date": "Oggi 21:00",
+            "normalized_date": today_str,
+            "system": "Pathfinder",
+            "host": "Master Luke",
+            "seats": "3/4",
+            "booked_seats": 1,
+            "max_seats": 4,
+            "description": "Avventura serale",
+            "status": "approved",
+            "image_path": None,
+        }
+        ev_id = db.insert_event(today_ev, None, "test text")
+        db.update_event_status(ev_id, "approved")
+
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.message.message_id = 888
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = []
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("core.scheduler.ADMIN_CHAT_ID", "999"), \
+             patch("core.scheduler.create_collage", return_value=None):
+            await manual_recap_command(update, context)
+
+        context.bot.send_message.assert_called_once()
+        recap_call_kwargs = context.bot.send_message.call_args.kwargs
+        self.assertEqual(recap_call_kwargs["chat_id"], "999")
+        self.assertIn("Partita di Oggi", recap_call_kwargs["text"])
+        update.message.reply_text.assert_called_once_with("Recap generato per la data: Oggi")
+
+    async def test_generate_daily_recap_automatic_silent_when_no_events(self):
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+
+        with patch("core.scheduler.ADMIN_CHAT_ID", "999"), \
+             patch("core.scheduler.datetime") as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 0
+            mock_now.strftime.side_effect = lambda fmt: "01-01-2099" if "%d" in fmt else "Monday"
+            mock_dt.now.return_value = mock_now
+
+            res = await generate_daily_recap(bot, is_manual=False)
+
+        self.assertFalse(res)
+        bot.send_message.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
+

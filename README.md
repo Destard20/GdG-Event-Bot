@@ -26,7 +26,7 @@ This application monitors a Telegram channel, extracts event information using *
 ## Features
 
 - **Automated Telegram Channel Interception:** Listens to the public announcement channel. When an admin posts a game event with an image, the bot intercepts it, deletes the raw post, parses the content with Gemini AI, and routes it to an admin review chat.
-- **Interactive Live Booking System:** Published events feature inline `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` buttons. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically.
+- **Interactive Live Booking System & Same-Day Conflict Warnings:** Published events feature inline `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` buttons. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically. If a user reserves a seat on multiple valid events on the same day, the bot automatically warns them in chat with links to all conflicting events so they can choose which to keep.
 - **Event Cancellation:** Admins can cancel any event at any time using a persistent `[Cancel]` button. Cancelled events update live in the channel and are flagged as `[ANNULLATO]` with zero seats in recaps and graphics.
 - **Daily Recaps & Multi-Image Collages:** Automatically runs at 18:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/recap_generate`. Stitches event artwork into clean horizontal collages without cropping borders.
 - **Instagram Story Generator:** Programmatically builds 1080x1920 Instagram Story cards for individual events and daily recaps using Pillow (handling top banner artwork, dynamic text wrapping, seat counters, and association location footers).
@@ -125,15 +125,16 @@ python3 main.py
 - **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` to the public channel and generates the Instagram Story graphic locally.
 - **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process` (or shortcut `/ep`).
 
-### 2. Live Seat Booking
+### 2. Live Seat Booking & Same-Day Conflict Warnings
 - Users click `[➕ Prenoto posto]` on a channel post to reserve a seat.
 - Clicks increment personal seat reservation count in SQLite.
 - The post message dynamically updates (`Posti: X/Y` or `0/Y Completo`), and the bot sends a reply to the post announcing the reservation.
+- **Same-Day Conflict Warning:** If a user reserves a seat on an event while already subscribed to another valid event (not cancelled or unsubscribed) scheduled for the same day, the bot processes the reservation normally and immediately posts a warning in the discussion chat. The warning tags the user, lists the conflicting event(s) with titles and direct message links, and reminds the user to release their seat from whichever event they decide not to attend.
 - Users click `[➖ Tolgo prenotazione]` to release reserved seats.
 
 ### 3. Daily Recap Flow
-- Runs automatically at **18:00** on Mondays, Wednesdays, Fridays, Saturdays, and Sundays.
-- **Manual Trigger:** Send `/recap_generate` (or shortcut `/rg`) in `ADMIN_CHAT_ID` (or `/recap_generate DD-MM-YYYY` / `/rg DD-MM-YYYY` for any target date).
+- Runs automatically at **18:00** on Mondays, Wednesdays, Fridays, Saturdays, and Sundays (silent if no events are scheduled).
+- **Manual Trigger:** Send `/recap_generate` (or shortcut `/rg`) in `ADMIN_CHAT_ID` (or `/recap_generate DD-MM-YYYY` / `/rg DD-MM-YYYY` for any target date). If there are no scheduled events for today (or the target date), the bot notifies the admin directly in `ADMIN_CHAT_ID` (`Nessun evento in programma per oggi.`) without generating an empty recap.
 - **Recap Card & Collage:** The bot generates a horizontal image collage of all scheduled games and compiles the formatted Italian recap text (using slim fallback if >1024 characters).
 - **Review:** Admin reviews the collage and recap in Telegram with `[Publish Recap]` or `[Discard Recap]`.
 - **Publishing:** Clicking `[Publish Recap]` sends the recap message to the public channel, renders the recap Instagram Story, uploads images to WordPress, and creates a draft blog post.
@@ -142,7 +143,7 @@ python3 main.py
 ### 4. Admin Event Editing (Reply Commands)
 In `ADMIN_CHAT_ID`, reply to any event announcement message (pending or already published) to update fields live in SQLite and edit the message in the channel:
 - `/event_edit_title <Titolo>`
-- `/event_edit_date <Data>`
+- `/event_edit_date <DD-MM-YYYY [HH:MM] o DD/MM/YYYY [HH:MM]>` (calcola automaticamente il giorno della settimana in italiano e sincronizza sia `date` che `normalized_date`)
 - `/event_edit_normalized_date <DD-MM-YYYY>`
 - `/event_edit_system <Sistema/Gioco>`
 - `/event_edit_host <Master o Host>`
@@ -151,7 +152,25 @@ In `ADMIN_CHAT_ID`, reply to any event announcement message (pending or already 
 - `/event_edit_extra <Difficoltà, avvertenze, tag, oppure null per rimuovere>`
 - `/event_edit_description <Descrizione o sinossi>`
 
-### 5. Bot Control Commands
+*Nota sui controlli di validità della data:*
+Durante l'acquisizione iniziale dell'evento da parte dell'AI, il bot esegue un controllo automatico di sanità della data: se la data rilevata è nel passato oppure c'è una discrepanza tra il giorno della settimana scritto e quello effettivo di calendario (es. "Sabato 04 Settembre 2026" quando il 4 settembre è venerdì), viene anteposto un avviso visibile (`🚨 ATTENZIONE ANOMALIE DATA`) nel messaggio di revisione admin. Correggendo la data con `/event_edit_date`, l'avviso viene automaticamente rimosso.
+
+### 5. Admin Subscriber Management
+In `ADMIN_CHAT_ID`, each event card includes a `[👥 Gestisci Iscritti]` button:
+- View current subscribers and seat counts.
+- `➕` and `➖` buttons per subscriber to adjust seats or remove bookings.
+- `[➕ Aggiungi Iscritto]` button to register any Telegram user via username.
+- Commands (send standalone or in reply to an event):
+  - `/event_sub_add <event_id> @username [posti]`
+  - `/event_sub_remove <event_id> @username [posti]`
+- **Public Group Notifications:** Whenever an event admin adds or removes subscribers or seats for a public event (via buttons, reply prompt, or commands), a notification is sent to the public discussion group (`DISCUSSION_GROUP_ID`) specifying that the modification was performed by an **event admin** (distinguishing event admins from group/server admins) and indicating the target user and seat count.
+
+### 6. Event Cancellation & Reactivation
+- **Cancellation (`[❌ Annulla Evento]`):** Updates status to `cancelled`, removes booking buttons from channel and discussion group, and posts a notification in the public discussion group (`DISCUSSION_GROUP_ID`) tagging all subscribed users to inform them of the cancellation (or sends a general notice if there are no subscribers).
+- **Reactivation (`[♻️ Riattiva Evento]`):** Under a cancelled event in `ADMIN_CHAT_ID`, admins can click `[♻️ Riattiva Evento]`. This restores status to `approved`, restores booking buttons in the public channel and discussion group, and posts a notification in the discussion group notifying the original subscribers that the event is reactivated.
+
+
+### 7. Bot Control Commands
 In `ADMIN_CHAT_ID`:
 - `/bot_pause`: Pauses public channel monitoring (bot becomes "blind" and will not intercept or delete events posted to the channel).
 - `/bot_resume`: Resumes public channel monitoring.

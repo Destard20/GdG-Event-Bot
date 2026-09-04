@@ -1,13 +1,24 @@
+import re
 from telegram import Update
 from telegram.ext import ContextTypes
 import logging
 from core.ai_parser import parse_event_message
-from core.db import insert_event
+from core.db import (
+    insert_event,
+    get_event_by_telegram_message_id,
+    update_event_field,
+    get_event,
+    update_discussion_message_info,
+    admin_add_subscriber,
+    admin_remove_subscriber,
+    get_reservation_by_user,
+)
 from core.config import DATA_DIR, ADMIN_CHAT_ID, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
 from utils.image_utils import save_image_locally
 from utils.templates import format_instagram_story, format_public_event_message
+from utils.date_utils import parse_user_date, format_standard_event_date, validate_event_date_anomalies
 from bot.keyboards import get_approval_keyboard, get_event_booking_keyboard
-from core.db import get_event_by_telegram_message_id, update_event_field, get_event
+from bot.service import update_event_messages, send_admin_action_notice
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +26,7 @@ is_bot_paused = False
 last_recap_message_id = None
 last_recap_events = None
 
-async def pause_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def bot_pause_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_bot_paused
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         return
@@ -23,7 +34,7 @@ async def pause_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Bot execution paused by admin.")
     await update.message.reply_text("🔴 **Bot in pausa!**\nIl bot ora ignorerà tutti i messaggi inviati sul canale eventi.", parse_mode="Markdown")
 
-async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def bot_resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_bot_paused
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         return
@@ -142,9 +153,18 @@ async def handle_event_extraction(text, image_bytes, context, message_link=None,
     story_text = format_instagram_story(event_data)
     keyboard = get_approval_keyboard(event_id)
     
+    warnings = validate_event_date_anomalies(event_data, raw_text=text)
+    if warnings:
+        warning_block = "🚨 ATTENZIONE ANOMALIE DATA:\n" + "\n".join(warnings) + "\n👉 Usa /event_edit_date per correggere prima di approvare.\n\n"
+        story_text = warning_block + story_text
+
+    caption_text = story_text
+    if image_path and len(caption_text) > 1024:
+        caption_text = caption_text[:1020] + "..."
+
     if image_path:
         with open(image_path, 'rb') as f:
-            await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=story_text, reply_markup=keyboard)
+            await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=caption_text, reply_markup=keyboard)
     else:
         await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=story_text, reply_markup=keyboard)
 
@@ -153,11 +173,27 @@ async def manual_recap_command(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     
     args = context.args
-    date_str = args[0] if args else None
+    date_str = None
+    if args:
+        parsed = parse_user_date(args[0])
+        if not parsed:
+            if update.message:
+                await update.message.reply_text(
+                    "❌ Formato data non valido.\n"
+                    "Usa il formato DD-MM-YYYY (es. /recap_generate 05-09-2026)."
+                )
+            return
+        dt, _ = parsed
+        date_str = dt.strftime("%d-%m-%Y")
     
     from core.scheduler import generate_daily_recap
-    await generate_daily_recap(context.bot, date_str, is_manual=True)
-    await update.message.reply_text(f"Recap generato per la data: {date_str or 'Oggi'}")
+    reply_id = update.message.message_id if update.message else None
+    success = await generate_daily_recap(context.bot, date_str, is_manual=True, reply_to_message_id=reply_id)
+    if success:
+        if update.message:
+            await update.message.reply_text(f"Recap generato per la data: {date_str or 'Oggi'}")
+        else:
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"Recap generato per la data: {date_str or 'Oggi'}")
 
 async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message or update.channel_post
@@ -206,19 +242,71 @@ async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAUL
         logger.warning(f"No event found in DB for forwarded message_id={forward_msg_id}")
         return
         
+    # Check if this event already has a discussion reply message
+    if event.get('discussion_message_id'):
+        logger.info(f"Event {event['id']} already has discussion_message_id={event['discussion_message_id']}")
+        pub_keyboard = get_event_booking_keyboard(event['id'], event=event)
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=message.chat_id,
+                message_id=event['discussion_message_id'],
+                reply_markup=pub_keyboard
+            )
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                logger.error(f"Error updating existing discussion reply markup: {e}")
+        return
+
     # Send a reply with the booking keyboard
     pub_keyboard = get_event_booking_keyboard(event['id'], event=event)
     
     try:
-        await context.bot.send_message(
+        reply_msg = await context.bot.send_message(
             chat_id=message.chat_id,
             text="👇 Gestisci qui la tua prenotazione!",
             reply_to_message_id=message.message_id,
             reply_markup=pub_keyboard
         )
+        update_discussion_message_info(event['id'], reply_msg.message_id, message.chat_id)
         logger.info(f"Successfully posted booking buttons reply in discussion group for event {event['id']}")
     except Exception as e:
         logger.error(f"Error sending booking buttons to discussion group: {e}")
+
+def extract_event_id_from_reply(reply_msg):
+    if not reply_msg:
+        return None
+    # 1. Check callback data on reply markup
+    if reply_msg.reply_markup and reply_msg.reply_markup.inline_keyboard:
+        for row in reply_msg.reply_markup.inline_keyboard:
+            for btn in row:
+                if btn.callback_data:
+                    for prefix in [
+                        "publish_event_",
+                        "discard_event_",
+                        "cancel_event_",
+                        "reactivate_event_",
+                        "manage_subs_",
+                        "sub_inc_",
+                        "sub_dec_",
+                        "sub_addnew_",
+                        "close_subs_",
+                    ]:
+                        if btn.callback_data.startswith(prefix):
+                            parts = btn.callback_data.split("_")
+                            try:
+                                return int(parts[2])
+                            except (IndexError, ValueError):
+                                pass
+    # 2. Check text or caption for #(\d+)
+    content = reply_msg.caption or reply_msg.text or ""
+    m = re.search(r"evento #(\d+)", content, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    # 3. Check DB telegram_message_id
+    ev = get_event_by_telegram_message_id(reply_msg.message_id)
+    if ev:
+        return ev['id']
+    return None
 
 async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
@@ -229,19 +317,7 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     target_msg = update.message.reply_to_message
-    
-    # Try to find event_id from inline keyboard
-    event_id = None
-    if target_msg.reply_markup and target_msg.reply_markup.inline_keyboard:
-        for row in target_msg.reply_markup.inline_keyboard:
-            for button in row:
-                if button.callback_data:
-                    if button.callback_data.startswith(("publish_event_", "discard_event_", "cancel_event_")):
-                        event_id = int(button.callback_data.split("_")[2])
-                        break
-            if event_id:
-                break
-                
+    event_id = extract_event_id_from_reply(target_msg)
     if not event_id:
         await update.message.reply_text("Impossibile determinare l'ID dell'evento da questo messaggio. Assicurati di rispondere al messaggio con i pulsanti (Publish, Discard, Cancel).")
         return
@@ -266,7 +342,31 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not field:
         return
         
-    if field == "seats":
+    if field == "date":
+        parsed = parse_user_date(value)
+        if not parsed:
+            await update.message.reply_text(
+                "❌ Formato data non valido.\n"
+                "Usa il formato DD-MM-YYYY o DD-MM-YYYY HH:MM (es. 05-09-2026 oppure 05-09-2026 21:00) (i / funzionano anche)."
+            )
+            return
+        dt, has_time = parsed
+        formatted_date, norm_date = format_standard_event_date(dt, has_time)
+        s1 = update_event_field(event_id, "date", formatted_date)
+        s2 = update_event_field(event_id, "normalized_date", norm_date)
+        success = s1 and s2
+    elif field == "normalized_date":
+        parsed = parse_user_date(value)
+        if not parsed:
+            await update.message.reply_text(
+                "❌ Formato data normalizzata non valido.\n"
+                "Usa il formato DD-MM-YYYY (es. 05-09-2026)."
+            )
+            return
+        dt, _ = parsed
+        norm_date = dt.strftime("%d-%m-%Y")
+        success = update_event_field(event_id, "normalized_date", norm_date)
+    elif field == "seats":
         # Handle "null", "nessuno", "0", "unlimited"
         if value.lower() in ["null", "nessuno", "0", "unlimited", ""]:
             update_event_field(event_id, "max_seats", None)
@@ -291,17 +391,21 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 update_event_field(event_id, "max_seats", total)
                 ev_now = get_event(event_id)
                 cur_booked = ev_now.get('booked_seats', 0) if ev_now else 0
-                if cur_booked > total:
-                    update_event_field(event_id, "booked_seats", 0)
-                update_event_field(event_id, "seats", f"{total}/{total}")
+                free = max(0, total - cur_booked)
+                update_event_field(event_id, "seats", f"{free}/{total}")
                 success = True
             except ValueError:
-                await update.message.reply_text("Il valore per i posti deve essere un numero intero (o 'X/Y' o 'null').")
+                await update.message.reply_text("Il valore per i posti deve essere un numero intero, 'X/Y' o 'null'.")
                 return
     elif field == "booked_seats":
         try:
             b_val = int(value)
             success = update_event_field(event_id, "booked_seats", b_val)
+            ev_now = get_event(event_id)
+            if ev_now and ev_now.get('max_seats') is not None:
+                max_s = ev_now['max_seats']
+                free = max(0, max_s - b_val)
+                update_event_field(event_id, "seats", f"{free}/{max_s}")
         except ValueError:
             await update.message.reply_text("Il valore per i posti prenotati deve essere un numero intero.")
             return
@@ -324,6 +428,12 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Update admin message
     story_text = format_instagram_story(event)
     
+    if event.get('status') == 'pending':
+        warnings = validate_event_date_anomalies(event)
+        if warnings:
+            warning_block = "🚨 ATTENZIONE ANOMALIE DATA:\n" + "\n".join(warnings) + "\n👉 Usa /event_edit_date per correggere prima di approvare.\n\n"
+            story_text = warning_block + story_text
+
     # Preserve status text and keyboard
     status_text = ""
     keyboard = target_msg.reply_markup
@@ -336,6 +446,8 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         status_text = "\n\n⚠️ ANNULLATO"
         
     new_text = story_text + status_text
+    if target_msg.photo and len(new_text) > 1024:
+        new_text = new_text[:1020] + "..."
     
     try:
         if target_msg.photo:
@@ -346,32 +458,187 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error editing admin message: {e}")
         await update.message.reply_text("Aggiornamento salvato nel DB, ma il testo del messaggio admin è identico al precedente.")
         
-    # If approved and published, update public channel
-    if event['status'] in ['approved', 'cancelled'] and event.get('telegram_message_id') and PUBLIC_CHANNEL_ID:
-        public_text = format_public_event_message(event)
-        
-        pub_keyboard = None
-        if event['status'] == 'approved':
-            pub_keyboard = get_event_booking_keyboard(event_id, event=event)
-            
-        try:
-            if event.get('image_path'):
-                await context.bot.edit_message_caption(
-                    chat_id=PUBLIC_CHANNEL_ID,
-                    message_id=event['telegram_message_id'],
-                    caption=public_text,
-                    reply_markup=pub_keyboard
-                )
-            else:
-                await context.bot.edit_message_text(
-                    chat_id=PUBLIC_CHANNEL_ID,
-                    message_id=event['telegram_message_id'],
-                    text=public_text,
-                    reply_markup=pub_keyboard
-                )
-        except Exception as e:
-            logger.error(f"Error editing public channel message: {e}")
-            await update.message.reply_text("Attenzione: l'evento è stato aggiornato, ma il testo del post sul canale pubblico era identico e non è stato modificato (normale se aggiorni dati non mostrati sul canale come l'host).")
+    # If approved and published, or cancelled, update public channel and discussion messages
+    if event['status'] in ['approved', 'cancelled']:
+        await update_event_messages(context, event_id, event=event)
             
     await update.message.reply_text(f"✅ Campo '{field}' aggiornato con successo!")
+
+async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.reply_to_message:
+        return
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        return
+
+    replied_text = update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
+    if "Invia l'username Telegram, rispondendo a questo messaggio, da aggiungere all'evento #" not in replied_text:
+        return
+
+    m = re.search(r"all'evento #(\d+)", replied_text)
+    if not m:
+        return
+
+    event_id = int(m.group(1))
+    raw_text = (update.message.text or "").strip()
+    parts = raw_text.split()
+    if not parts:
+        return
+
+    username = parts[0]
+    seats = 1
+    if len(parts) > 1:
+        try:
+            seats = int(parts[1])
+        except ValueError:
+            seats = 1
+
+    ok, msg = admin_add_subscriber(event_id, username, seats=seats)
+    if ok:
+        await update_event_messages(context, event_id)
+        event = get_event(event_id)
+        await send_admin_action_notice(
+            context=context,
+            event=event,
+            target_username=username,
+            action="add",
+            seats=seats,
+            admin_user=update.effective_user,
+        )
+        await update.message.reply_text(f"✅ {msg}")
+    else:
+        await update.message.reply_text(f"❌ {msg}")
+
+async def event_sub_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        return
+
+    args = context.args or []
+    event_id = None
+    username = None
+    seats = 1
+
+    if update.message.reply_to_message:
+        event_id = extract_event_id_from_reply(update.message.reply_to_message)
+
+    if event_id:
+        if len(args) < 1:
+            await update.message.reply_text(
+                "Uso in risposta a un evento: <code>/event_sub_add @username [posti]</code>",
+                parse_mode="HTML",
+            )
+            return
+        username = args[0]
+        if len(args) >= 2:
+            try:
+                seats = int(args[1])
+            except ValueError:
+                await update.message.reply_text("I posti devono essere un numero intero.")
+                return
+    else:
+        if len(args) < 2:
+            await update.message.reply_text(
+                "Uso: <code>/event_sub_add &lt;event_id&gt; @username [posti]</code>\n"
+                "Oppure rispondi a un evento con: <code>/event_sub_add @username [posti]</code>",
+                parse_mode="HTML",
+            )
+            return
+        try:
+            event_id = int(args[0])
+        except ValueError:
+            await update.message.reply_text("L'ID evento deve essere un numero intero.")
+            return
+        username = args[1]
+        if len(args) >= 3:
+            try:
+                seats = int(args[2])
+            except ValueError:
+                await update.message.reply_text("I posti devono essere un numero intero.")
+                return
+
+    ok, msg = admin_add_subscriber(event_id, username, seats=seats)
+    if ok:
+        await update_event_messages(context, event_id)
+        event = get_event(event_id)
+        await send_admin_action_notice(
+            context=context,
+            event=event,
+            target_username=username,
+            action="add",
+            seats=seats,
+            admin_user=update.effective_user,
+        )
+        await update.message.reply_text(f"✅ {msg}")
+    else:
+        await update.message.reply_text(f"❌ {msg}")
+
+async def event_sub_remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        return
+
+    args = context.args or []
+    event_id = None
+    username = None
+    seats = None
+
+    if update.message.reply_to_message:
+        event_id = extract_event_id_from_reply(update.message.reply_to_message)
+
+    if event_id:
+        if len(args) < 1:
+            await update.message.reply_text(
+                "Uso in risposta a un evento: <code>/event_sub_remove @username [posti]</code>",
+                parse_mode="HTML",
+            )
+            return
+        username = args[0]
+        if len(args) >= 2:
+            try:
+                seats = int(args[1])
+            except ValueError:
+                await update.message.reply_text("I posti devono essere un numero intero.")
+                return
+    else:
+        if len(args) < 2:
+            await update.message.reply_text(
+                "Uso: <code>/event_sub_remove &lt;event_id&gt; @username [posti]</code>\n"
+                "Oppure rispondi a un evento con: <code>/event_sub_remove @username [posti]</code>",
+                parse_mode="HTML",
+            )
+            return
+        try:
+            event_id = int(args[0])
+        except ValueError:
+            await update.message.reply_text("L'ID evento deve essere un numero intero.")
+            return
+        username = args[1]
+        if len(args) >= 3:
+            try:
+                seats = int(args[2])
+            except ValueError:
+                await update.message.reply_text("I posti devono essere un numero intero.")
+                return
+
+    res = get_reservation_by_user(event_id, username=username)
+    seats_to_remove = seats
+    if res and (seats_to_remove is None or int(seats_to_remove) > res.get('seats_booked', 0)):
+        seats_to_remove = res.get('seats_booked', 1)
+    if seats_to_remove is None:
+        seats_to_remove = 1
+
+    ok, msg = admin_remove_subscriber(event_id, username, seats=seats)
+    if ok:
+        await update_event_messages(context, event_id)
+        event = get_event(event_id)
+        await send_admin_action_notice(
+            context=context,
+            event=event,
+            target_username=username,
+            target_user_id=res.get('user_id') if res else None,
+            action="remove",
+            seats=seats_to_remove,
+            admin_user=update.effective_user,
+        )
+        await update.message.reply_text(f"✅ {msg}")
+    else:
+        await update.message.reply_text(f"❌ {msg}")
 

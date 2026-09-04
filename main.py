@@ -3,12 +3,13 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, CallbackQueryHandler
-from core.config import TELEGRAM_BOT_TOKEN, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
+from core.config import TELEGRAM_BOT_TOKEN, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID, ADMIN_CHAT_ID
 from core.db import init_db
 from bot.handlers import (
     process_message, manual_trigger_command, manual_recap_command, 
-    handle_discussion_forward, event_edit_command, pause_command, 
-    resume_command, bot_status_command
+    handle_discussion_forward, event_edit_command, bot_pause_command, 
+    bot_resume_command, bot_status_command, event_sub_add_command,
+    event_sub_remove_command, handle_admin_reply
 )
 from bot.callbacks import handle_approval
 from core.scheduler import start_scheduler
@@ -51,13 +52,24 @@ def main():
     application.add_handler(CommandHandler("ep", manual_trigger_command))
     application.add_handler(CommandHandler("recap_generate", manual_recap_command))
     application.add_handler(CommandHandler("rg", manual_recap_command))
-    application.add_handler(CommandHandler("bot_pause", pause_command))
-    application.add_handler(CommandHandler("resume", resume_command))
+    application.add_handler(CommandHandler("bot_pause", bot_pause_command))
+    application.add_handler(CommandHandler("resume", bot_resume_command))
     application.add_handler(CommandHandler("bot_status", bot_status_command))
     
     edit_cmds = ["event_edit_title", "event_edit_date", "event_edit_normalized_date", "event_edit_system", "event_edit_seats", "event_edit_booked", "event_edit_host", "event_edit_extra", "event_edit_description"]
     for cmd in edit_cmds:
         application.add_handler(CommandHandler(cmd, event_edit_command))
+    application.add_handler(CommandHandler("event_sub_add", event_sub_add_command))
+    application.add_handler(CommandHandler("event_sub_remove", event_sub_remove_command))
+    
+    # Listen to admin chat for prompt replies
+    if ADMIN_CHAT_ID:
+        try:
+            admin_id = int(ADMIN_CHAT_ID)
+            application.add_handler(MessageHandler(filters.Chat(chat_id=admin_id) & filters.TEXT & filters.REPLY, handle_admin_reply))
+        except ValueError:
+            logger.error("ADMIN_CHAT_ID deve essere un intero valido.")
+
     
     # Listen to public channel
     if PUBLIC_CHANNEL_ID:

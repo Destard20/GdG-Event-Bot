@@ -15,11 +15,11 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
-async def generate_daily_recap(bot, manual_date=None, is_manual=False):
+async def generate_daily_recap(bot, manual_date=None, is_manual=False, reply_to_message_id=None):
     now = datetime.now()
     # Check if it's Monday(0), Wednesday(2), Friday(4), Saturday(5), Sunday(6)
     if not is_manual and now.weekday() not in [0, 2, 4, 5, 6]:
-        return
+        return False
         
     date_str = manual_date if manual_date else now.strftime("%d-%m-%Y")
     
@@ -32,12 +32,28 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False):
         "Saturday": "Sabato",
         "Sunday": "Domenica"
     }
-    day_str = days_it.get(now.strftime("%A"), now.strftime("%A"))
+    if manual_date:
+        try:
+            target_dt = datetime.strptime(date_str, "%d-%m-%Y")
+            day_str = days_it.get(target_dt.strftime("%A"), target_dt.strftime("%A"))
+        except Exception:
+            day_str = days_it.get(now.strftime("%A"), now.strftime("%A"))
+    else:
+        day_str = days_it.get(now.strftime("%A"), now.strftime("%A"))
     
     events = get_pending_events_for_recap(date_str)
     if not events:
-        logger.info("No events pending for recap.")
-        return
+        logger.info(f"No events pending for recap on {date_str}.")
+        if is_manual and bot:
+            msg = f"Nessun evento in programma per la data {date_str}." if (manual_date and manual_date != now.strftime("%d-%m-%Y")) else "Nessun evento in programma per oggi."
+            if reply_to_message_id:
+                try:
+                    await bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg, reply_to_message_id=reply_to_message_id)
+                    return False
+                except Exception as e:
+                    logger.warning(f"Failed to reply with reply_to_message_id {reply_to_message_id}: {e}")
+            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg)
+        return False
         
     # generate text
     recap_text = recap_generate_text(day_str, date_str, events)
@@ -65,6 +81,7 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False):
     # For now, mark them so they don't get picked up again immediately.
     event_ids = [ev['id'] for ev in events]
     mark_events_as_recap(event_ids)
+    return True
 
 async def archive_today_images():
     now = datetime.now()

@@ -1,5 +1,15 @@
 import html
 
+def format_event_title_link(event):
+    if not event:
+        return "<b>Evento</b>"
+    event_title = event.get('title') or 'Evento'
+    escaped_title = html.escape(event_title)
+    link = event.get('message_link')
+    if link:
+        return f'<a href="{link}"><b>{escaped_title}</b></a>'
+    return f'<b>{escaped_title}</b>'
+
 def format_public_event_message(event_data):
     booked = int(event_data.get('booked_seats', 0) or 0)
     max_s = event_data.get('max_seats')
@@ -97,9 +107,9 @@ def recap_generate_text(day_str, date_str, events):
                 seats_display = "0 (Nessun limite)"
             else:
                 seats_display = f"0/{max_s}"
-            body += f"- ❌ {title}{sys_str} : {seats_display} [ANNULLATO]\n\n"
+            body += f"- ❌ <b>{title}</b>{sys_str} : {seats_display} [ANNULLATO]\n\n"
         else:
-            body += f"- {title}{sys_str} : {seats_display}\n\n"
+            body += f"- <b>{title}</b>{sys_str} : {seats_display}\n\n"
         
     footer = (
         "Tutto pieno? Vieni lo stesso! Abbiamo oltre 400 giochi a disposizione. "
@@ -131,12 +141,8 @@ def recap_links_text(events):
     for ev in events:
         if ev.get('status') == 'cancelled':
             continue
-        link = ev.get('message_link')
-        title = html.escape(ev.get('title') or 'Evento')
+        title_display = format_event_title_link(ev)
         sys_val = ev.get('system')
         sys_str = f" ({html.escape(sys_val)})" if sys_val else ""
-        if link:
-            text += f"- <a href='{link}'>{title}</a>{sys_str}\n"
-        else:
-            text += f"- {title}{sys_str}\n"
+        text += f"- {title_display}{sys_str}\n"
     return text
