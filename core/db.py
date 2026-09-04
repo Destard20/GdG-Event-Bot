@@ -106,7 +106,7 @@ def update_event_field(event_id, field, value):
     allowed_fields = [
         'title', 'date', 'normalized_date', 'system', 'host',
         'seats', 'booked_seats', 'max_seats', 'description', 'extra_info',
-        'discussion_message_id', 'discussion_chat_id'
+        'discussion_message_id', 'discussion_chat_id', 'image_path'
     ]
     if field not in allowed_fields:
         return False
@@ -118,6 +118,18 @@ def update_event_field(event_id, field, value):
             return True
     except Exception as e:
         logger.error(f"Error updating event field {field}: {e}")
+        return False
+
+def delete_event(event_id):
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM reservations WHERE event_id = ?', (event_id,))
+            cursor.execute('DELETE FROM events WHERE id = ?', (event_id,))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error deleting event {event_id}: {e}")
         return False
 
 def get_event(event_id):

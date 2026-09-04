@@ -1,6 +1,7 @@
 import html
-
+import os
 import logging
+from telegram import InputMediaPhoto
 from core.db import get_event, update_discussion_message_info, book_seat, unbook_seat, get_user_conflicting_events
 from core.config import PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
 from utils.templates import format_public_event_message, format_event_title_link
@@ -8,7 +9,7 @@ from bot.keyboards import get_event_booking_keyboard
 
 logger = logging.getLogger(__name__)
 
-async def update_event_messages(context, event_id, event=None, current_query=None):
+async def update_event_messages(context, event_id, event=None, current_query=None, update_image=False):
     """
     Synchronizes public messages for an event:
     1. Updates the announcement message in PUBLIC_CHANNEL_ID (caption/text and keyboard).
@@ -27,7 +28,18 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
     # 1. Update message in PUBLIC_CHANNEL_ID
     if PUBLIC_CHANNEL_ID and event.get('telegram_message_id'):
         try:
-            if event.get('image_path'):
+            if update_image and event.get('image_path') and os.path.exists(event['image_path']):
+                try:
+                    with open(event['image_path'], 'rb') as f:
+                        await context.bot.edit_message_media(
+                            chat_id=PUBLIC_CHANNEL_ID,
+                            message_id=event['telegram_message_id'],
+                            media=InputMediaPhoto(media=f, caption=public_text),
+                            reply_markup=pub_keyboard
+                        )
+                except Exception as e:
+                    logger.error(f"Error editing message media in public channel for event {event_id}: {e}")
+            elif event.get('image_path'):
                 try:
                     await context.bot.edit_message_caption(
                         chat_id=PUBLIC_CHANNEL_ID,

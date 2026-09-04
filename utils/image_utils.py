@@ -48,37 +48,67 @@ def delete_local_image(filepath):
     except Exception as e:
         logger.error(f"Error deleting image {filepath}: {e}")
 
+def build_horizontal_collage(images):
+    """
+    Given a list of PIL Image objects, resizes them proportionally to their average height
+    and stitches them horizontally side by side without stretching or cropping.
+    """
+    if not images:
+        return None
+    if len(images) == 1:
+        im = images[0]
+        if im.mode != 'RGB':
+            im = im.convert('RGB')
+        return im
+
+    processed_images = []
+    for im in images:
+        try:
+            im = ImageOps.exif_transpose(im)
+        except Exception:
+            pass
+        if im.mode != 'RGB':
+            im = im.convert('RGB')
+        processed_images.append(im)
+
+    widths, heights = zip(*(i.size for i in processed_images))
+    avg_height = max(1, int(sum(heights) / len(processed_images)))
+
+    # Resize images so they all have the exact same height (the average height),
+    # allowing their widths to adjust naturally.
+    resized_images = []
+    for im in processed_images:
+        new_width = max(1, int(im.width * (avg_height / im.height)))
+        resized_images.append(im.resize((new_width, avg_height), Image.Resampling.LANCZOS))
+
+    new_widths = [im.width for im in resized_images]
+    total_width = sum(new_widths)
+    max_height = avg_height
+
+    collage = Image.new('RGB', (total_width, max_height))
+
+    x_offset = 0
+    for im in resized_images:
+        collage.paste(im, (x_offset, 0))
+        x_offset += im.width
+
+    return collage
+
 def create_collage(image_paths, output_dir, date_str=None):
     if not image_paths:
         return None
     
     try:
-        images = [Image.open(p) for p in image_paths if os.path.exists(p)]
+        images = []
+        for p in image_paths:
+            if p and os.path.exists(p):
+                images.append(Image.open(p))
         if not images:
             return None
             
-        # Calculate average height
-        widths, heights = zip(*(i.size for i in images))
-        avg_height = int(sum(heights) / len(images))
-        
-        # Resize images so they all have the exact same height (the average height), 
-        # allowing their widths to adjust naturally. This prevents any stretching or cropping!
-        resized_images = []
-        for im in images:
-            new_width = int(im.width * (avg_height / im.height))
-            resized_images.append(im.resize((new_width, avg_height), Image.Resampling.LANCZOS))
-            
-        # The total width is now the sum of these newly adjusted widths
-        new_widths = [im.width for im in resized_images]
-        total_width = sum(new_widths)
-        max_height = avg_height
-        
-        collage = Image.new('RGB', (total_width, max_height))
-        
-        x_offset = 0
-        for im in resized_images:
-            collage.paste(im, (x_offset, 0))
-            x_offset += im.width
+        collage = build_horizontal_collage(images)
+        if not collage:
+            return None
             
         daily_dir = get_daily_dir(output_dir, date_str)
         filename = f"collage_{uuid.uuid4()}.jpg"
@@ -87,6 +117,36 @@ def create_collage(image_paths, output_dir, date_str=None):
         return filepath
     except Exception as e:
         logger.error(f"Error creating collage: {e}")
+        return None
+
+def create_collage_from_bytes(images_bytes_list):
+    """
+    Given a list of image byte arrays, creates a single horizontal collage
+    and returns the resulting JPEG image as bytes.
+    """
+    if not images_bytes_list:
+        return None
+    if len(images_bytes_list) == 1:
+        return images_bytes_list[0]
+
+    try:
+        import io
+        images = []
+        for b in images_bytes_list:
+            if b:
+                images.append(Image.open(io.BytesIO(b)))
+        if not images:
+            return None
+
+        collage = build_horizontal_collage(images)
+        if not collage:
+            return None
+
+        out_buf = io.BytesIO()
+        collage.save(out_buf, format='JPEG', quality=95)
+        return out_buf.getvalue()
+    except Exception as e:
+        logger.error(f"Error creating collage from bytes: {e}")
         return None
 
 def create_story_image(event_data, original_image_path, output_dir):

@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from core.db import (
     update_event_status,
+    delete_event,
     get_event,
     get_pending_events_for_recap,
     update_telegram_message_info,
@@ -224,10 +225,10 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("discard_event_"):
         await query.answer()
         event_id = int(data.split("_")[2])
-        update_event_status(event_id, "discarded")
         event = get_event(event_id)
-        if event and event['image_path']:
+        if event and event.get('image_path'):
             delete_local_image(event['image_path'])
+        delete_event(event_id)
         msg_text = query.message.caption or query.message.text or ""
         new_text = update_status_suffix(msg_text, "\n\n❌ SCARTATO")
         try:
@@ -319,7 +320,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from utils.templates import recap_generate_text
             recap_text = recap_generate_text(day_str, date_str, events)
             
-            from core.ai_parser import generate_wordpress_article
+            from core.ai_parser import generate_wordpress_article, GeminiQuotaError, GEMINI_DEPLETED_ALERT
             from core.wordpress import publish_article, upload_media
             from utils.image_utils import create_collage
             from core.config import DATA_DIR
@@ -351,7 +352,15 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if media_info:
                         ev['wp_media_url'] = media_info.get('source_url')
                         
-            wp_content = generate_wordpress_article(recap_text, events)
+            try:
+                wp_content = generate_wordpress_article(recap_text, events)
+            except GeminiQuotaError as e:
+                logger.error(f"Gemini quota depleted during WP article generation: {e}")
+                wp_content = None
+                try:
+                    await context.bot.send_message(chat_id=query.message.chat_id, text=GEMINI_DEPLETED_ALERT)
+                except Exception as send_err:
+                    logger.error(f"Failed to send quota alert to admin: {send_err}")
             if wp_content:
                 wp_title = f"Eventi della Serata: {day_str} {date_str}"
                 media_id = None

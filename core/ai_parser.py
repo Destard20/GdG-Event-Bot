@@ -6,6 +6,12 @@ from core.config import GEMINI_API_KEY, GEMINI_MODEL
 
 logger = logging.getLogger(__name__)
 
+class GeminiQuotaError(Exception):
+    """Raised when Gemini API quota is exceeded or prepayment credits are depleted."""
+    pass
+
+GEMINI_DEPLETED_ALERT = "🚨 Errore Gemini AI (Crediti esauriti):\n429 Your prepayment credits are depleted."
+
 genai.configure(api_key=GEMINI_API_KEY)
 
 def parse_event_message(message_text):
@@ -94,6 +100,9 @@ def parse_event_message(message_text):
         return data
     except Exception as e:
         logger.error(f"Error parsing message with AI: {e}")
+        err_str = str(e)
+        if "429" in err_str or "prepayment credits are depleted" in err_str.lower() or "quota" in err_str.lower() or "resourceexhausted" in err_str.lower():
+            raise GeminiQuotaError(err_str) from e
         return None
 
 def generate_wordpress_article(recap_text, event_list):
@@ -128,5 +137,8 @@ def generate_wordpress_article(recap_text, event_list):
         return response.text.strip()
     except Exception as e:
         logger.error(f"Error generating WP article with AI: {e}")
+        err_str = str(e)
+        if "429" in err_str or "prepayment credits are depleted" in err_str.lower() or "quota" in err_str.lower() or "resourceexhausted" in err_str.lower():
+            raise GeminiQuotaError(err_str) from e
         return None
 

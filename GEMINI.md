@@ -40,10 +40,12 @@ The system automates the ingestion, standardization, social sharing, and booking
    - When an admin posts a message with text and an image:
      - The bot checks if the message was sent by a bot or already contains booking callback buttons (`book_` / `unbook_`). If so, it ignores it to prevent loops.
      - If it is a new user/admin post, the bot **immediately deletes** the original unformatted message from the public channel.
-     - The original image is downloaded and saved to `[DATA_DIR]/YYYY/MM/DD/` based on the event's parsed `normalized_date`.
+     - **Multi-Image Media Groups (Albums 2–4 photos):** When an event arrives with multiple photos sharing a `media_group_id`, updates are aggregated in memory across a 2-second silence buffer. All individual photos in the album are deleted from the public channel immediately. Once aggregated, `utils/image_utils.create_collage_from_bytes` builds a uniform horizontal collage (matching recap collage rules: uniform average height, preserved individual aspect ratios, no cropping or distortion). Only the stitched collage is saved as `event_{uuid}.jpg` in `[DATA_DIR]/YYYY/MM/DD/`; individual raw photos are never written to disk.
+     - **Single Photo:** The image is downloaded and saved directly to `[DATA_DIR]/YYYY/MM/DD/event_{uuid}.jpg`.
      - The text is passed to `core/ai_parser.py`.
 2. **Manual Ingestion (`/event_process` or `/ep`):**
-   - An admin can send an image with text to `ADMIN_CHAT_ID` and reply `/event_process` or `/ep` (or include text in the command).
+   - An admin can send an image or multi-image album with text to `ADMIN_CHAT_ID` and reply `/event_process` or `/ep` (or include text directly in the command: `/ep <testo>`).
+   - Photos/albums sent in `ADMIN_CHAT_ID` are silently cached in memory. When replying with `/ep` to any photo in an album, the bot aggregates all sibling photos of that `media_group_id`, stitches them into a horizontal collage using `utils/image_utils.create_collage_from_bytes`, and resolves text from the command, replied message, or album captions.
    - Operates through the identical parsing and review pipeline.
 3. **Monitoring Pause / Resume (`/bot_pause`, `/bot_resume`, `/bot_status`):**
    - Admins can send `/bot_pause` in `ADMIN_CHAT_ID` to make the bot temporarily "blind" to `PUBLIC_CHANNEL_ID` (it will not intercept, parse, or delete messages from the channel).
@@ -68,11 +70,19 @@ The system automates the ingestion, standardization, social sharing, and booking
     - A deterministic regex safety net enforces `max_seats = free` and `booked_seats = 0` in `core/ai_parser.py`.
   - `extra_info` (string): Additional details (difficulty/beginner friendliness, format/duration/campaign, trigger warnings/disclaimers/X-Card, genres).
   - `description` (string): Event pitch/synopsis.
+- **Quota / Credit Depletion Handling:**
+  - If Google Gemini returns HTTP 429 or prepayment credits are depleted (`GeminiQuotaError`), the bot alerts admins immediately in `ADMIN_CHAT_ID`:
+    ```
+    🚨 Errore Gemini AI (Crediti esauriti):
+    429 Your prepayment credits are depleted.
+    ```
+  - This alert is triggered during event parsing (`handle_event_extraction`) and recap WordPress article generation (`handle_approval`).
+
 ### 2.3. Admin Review & Approval (`bot/callbacks.py`)
 - For messages intercepted and deleted from `PUBLIC_CHANNEL_ID`, the raw `original_text` of the event is sent to `ADMIN_CHAT_ID` as a separate message so admins can verify if the AI made any mistakes (omitted for manual `/event_process` or `/ep` triggers where the original message is already in `ADMIN_CHAT_ID`).
 - Then, the parsed event is sent to `ADMIN_CHAT_ID` with inline keyboard buttons: `[Publish]`, `[Discard]`, `[Cancel]`, and `[👥 Gestisci Iscritti]`.
 - For privacy, the `Master/Host` field is omitted from generated Instagram Story images, but is displayed in the admin review message and the public channel post.
-- **[Discard]:** Deletes the local event image, updates DB status to `discarded`, updates message to `❌ SCARTATO`.
+- **[Discard]:** Deletes the local event image, permanently deletes the event and all associated reservations from SQLite database, updates message to `❌ SCARTATO` and removes inline action buttons.
 - **[Cancel]:** Updates DB status to `cancelled`, updates message to `⚠️ ANNULLATO`, switches keyboard to `[♻️ Riattiva Evento]` and `[👥 Gestisci Iscritti]`, and posts a notice to `DISCUSSION_GROUP_ID` tagging all subscribers.
 - **[Publish]:**
   1. Generates 1080x1920 Instagram Story image using `utils/image_utils.create_story_image()` and saves it in `[DATA_DIR]/YYYY/MM/DD/`.

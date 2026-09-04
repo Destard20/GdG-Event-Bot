@@ -32,6 +32,7 @@ Se l'IA ha commesso un errore o i dettagli del tavolo cambiano, puoi correggere 
 - `/event_edit_seats <X/Y>` *(es. 0/5 per azzerare i posti occupati su 5 massimi)*
 - `/event_edit_extra <Note extra, avvertenze o tag>`
 - `/event_edit_description <Nuova descrizione dell'evento>`
+- `/event_edit_image` *(allega una nuova foto o album in risposta alla scheda evento, o rispondi a una foto con `/event_edit_image <event_id>`)*
 
 ### 3. Pubblicare o Annullare
 Sotto l'anteprima dell'evento troverai i pulsanti:
