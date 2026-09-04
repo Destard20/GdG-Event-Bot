@@ -123,7 +123,7 @@ python3 main.py
 - **Auto-Interception:** The bot immediately deletes the raw post and parses the content via Gemini.
 - **Admin Review:** The parsed event is forwarded to `ADMIN_CHAT_ID` with buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
 - **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` to the public channel and generates the Instagram Story graphic locally.
-- **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process`.
+- **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process` (or shortcut `/ep`).
 
 ### 2. Live Seat Booking
 - Users click `[➕ Prenoto posto]` on a channel post to reserve a seat.
@@ -133,7 +133,7 @@ python3 main.py
 
 ### 3. Daily Recap Flow
 - Runs automatically at **18:00** on Mondays, Wednesdays, Fridays, Saturdays, and Sundays.
-- **Manual Trigger:** Send `/recap_generate` in `ADMIN_CHAT_ID` (or `/recap_generate DD-MM-YYYY` for any target date).
+- **Manual Trigger:** Send `/recap_generate` (or shortcut `/rg`) in `ADMIN_CHAT_ID` (or `/recap_generate DD-MM-YYYY` / `/rg DD-MM-YYYY` for any target date).
 - **Recap Card & Collage:** The bot generates a horizontal image collage of all scheduled games and compiles the formatted Italian recap text (using slim fallback if >1024 characters).
 - **Review:** Admin reviews the collage and recap in Telegram with `[Publish Recap]` or `[Discard Recap]`.
 - **Publishing:** Clicking `[Publish Recap]` sends the recap message to the public channel, renders the recap Instagram Story, uploads images to WordPress, and creates a draft blog post.
@@ -146,7 +146,7 @@ In `ADMIN_CHAT_ID`, reply to any event announcement message (pending or already 
 - `/event_edit_normalized_date <DD-MM-YYYY>`
 - `/event_edit_system <Sistema/Gioco>`
 - `/event_edit_host <Master o Host>`
-- `/edit_seats <X/Y, numero intero, oppure null>`
+- `/event_edit_seats <X/Y, numero intero, oppure null>`
 - `/event_edit_booked <numero intero>`
 - `/event_edit_extra <Difficoltà, avvertenze, tag, oppure null per rimuovere>`
 - `/event_edit_description <Descrizione o sinossi>`
@@ -181,31 +181,33 @@ data/
 
 ## Maintenance & Diagnostic Scripts
 
+All maintenance utilities are located in the `scripts/` directory:
+
 - **Unzip Archived Images:**
   ```bash
   # Unzip all archives in a folder (year, month, or day):
-  python3 unzip_images.py data/2026/09
-  python3 unzip_images.py 2026/09
+  python3 scripts/unzip_images.py data/2026/09
+  python3 scripts/unzip_images.py 2026/09
 
   # Unzip archives within a date range:
-  python3 unzip_images.py --start 01-09-2026 --end 10-09-2026
+  python3 scripts/unzip_images.py --start 01-09-2026 --end 10-09-2026
 
   # Unzip for a specific date:
-  python3 unzip_images.py --date 04-09-2026
+  python3 scripts/unzip_images.py --date 04-09-2026
 
   # Optionally delete the zip file after extraction:
-  python3 unzip_images.py data/2026/09 --delete-zip
+  python3 scripts/unzip_images.py data/2026/09 --delete-zip
   ```
 
 - **Reset Database & Clean Images:**
   ```bash
-  python3 clean_db.py
+  python3 scripts/clean_db.py
   ```
   Safely truncates `events` and `reservations` tables, resets autoincrement counters, and removes generated `.jpg` files across all date folders while preserving fonts.
 
 - **Check Meta Instagram Token:**
   ```bash
-  python3 test_ig.py
+  python3 scripts/test_ig.py
   ```
   Tests connectivity and permissions of `IG_ACCESS_TOKEN` against Meta Graph API.
 

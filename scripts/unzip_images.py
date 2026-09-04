@@ -4,19 +4,19 @@ Utility script to unzip image archives.
 
 Usage Examples:
     # Unzip all archives in a specific directory or subdirectories:
-    python3 unzip_images.py data/2026
-    python3 unzip_images.py data/2026/09
-    python3 unzip_images.py data/2026/09/04
-    python3 unzip_images.py 2026/09
+    python3 scripts/unzip_images.py data/2026
+    python3 scripts/unzip_images.py data/2026/09
+    python3 scripts/unzip_images.py data/2026/09/04
+    python3 scripts/unzip_images.py 2026/09
 
     # Unzip archives within a date range:
-    python3 unzip_images.py --start 01-09-2026 --end 10-09-2026
+    python3 scripts/unzip_images.py --start 01-09-2026 --end 10-09-2026
 
     # Unzip archives for a single date:
-    python3 unzip_images.py --date 04-09-2026
+    python3 scripts/unzip_images.py --date 04-09-2026
 
     # Delete the zip files after successful extraction:
-    python3 unzip_images.py data/2026 --delete-zip
+    python3 scripts/unzip_images.py data/2026 --delete-zip
 """
 
 import os
@@ -26,10 +26,13 @@ import zipfile
 import argparse
 from datetime import datetime, timedelta
 
+# Ensure repository root is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 try:
     from core.config import DATA_DIR
 except ImportError:
-    DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
 
 def parse_date(date_str):

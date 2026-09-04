@@ -48,12 +48,14 @@ def main():
     
     # Handlers for admin commands
     application.add_handler(CommandHandler("event_process", manual_trigger_command))
+    application.add_handler(CommandHandler("ep", manual_trigger_command))
     application.add_handler(CommandHandler("recap_generate", manual_recap_command))
+    application.add_handler(CommandHandler("rg", manual_recap_command))
     application.add_handler(CommandHandler("bot_pause", pause_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("bot_status", bot_status_command))
     
-    edit_cmds = ["event_edit_title", "event_edit_date", "event_edit_normalized_date", "event_edit_system", "edit_seats", "event_edit_booked", "event_edit_host", "event_edit_extra", "event_edit_description"]
+    edit_cmds = ["event_edit_title", "event_edit_date", "event_edit_normalized_date", "event_edit_system", "event_edit_seats", "event_edit_booked", "event_edit_host", "event_edit_extra", "event_edit_description"]
     for cmd in edit_cmds:
         application.add_handler(CommandHandler(cmd, event_edit_command))
     

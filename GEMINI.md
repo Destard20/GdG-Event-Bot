@@ -42,8 +42,8 @@ The system automates the ingestion, standardization, social sharing, and booking
      - If it is a new user/admin post, the bot **immediately deletes** the original unformatted message from the public channel.
      - The original image is downloaded and saved to `[DATA_DIR]/YYYY/MM/DD/` based on the event's parsed `normalized_date`.
      - The text is passed to `core/ai_parser.py`.
-2. **Manual Ingestion (`/event_process`):**
-   - An admin can send an image with text to `ADMIN_CHAT_ID` and reply `/event_process` (or include text in the command).
+2. **Manual Ingestion (`/event_process` or `/ep`):**
+   - An admin can send an image with text to `ADMIN_CHAT_ID` and reply `/event_process` or `/ep` (or include text in the command).
    - Operates through the identical parsing and review pipeline.
 3. **Monitoring Pause / Resume (`/bot_pause`, `/bot_resume`, `/bot_status`):**
    - Admins can send `/bot_pause` in `ADMIN_CHAT_ID` to make the bot temporarily "blind" to `PUBLIC_CHANNEL_ID` (it will not intercept, parse, or delete messages from the channel).
@@ -58,20 +58,21 @@ The system automates the ingestion, standardization, social sharing, and booking
   - `normalized_date` (string): Strict `DD-MM-YYYY` date for scheduling and folder organization.
   - `system` (string): Game system / genre (e.g. `Call of Cthulhu 7a Ed.`, `Board Game`).
   - `host` (string): Master/Host name or handle.
-  - `seats` (string): Normalized string. If full, strictly `0/0 Completo`.
-  - `booked_seats` (int): Number of currently booked seats. Correctly calculates free vs booked (free = X, max = Y, booked = Y - X):
+  - `seats` (string): Normalized string representing available seats (e.g. `4/4` or `0/0 Completo`).
+  - `booked_seats` (int): Initialized to 0 for bot-managed seats.
+  - `max_seats` (int or null): Bookable capacity matching the free seats specified at announcement time (e.g. if `Posti liberi: 4/5` or `2/4` is posted, `max_seats` is set to `4` or `2`, ignoring table totals `Y` since the bot only tracks open slots; `booked_seats` starts at 0).
     - `Posti: 2/2` or `Posti liberi: 3/3` -> `booked_seats: 0`, `max_seats: 2` or `3`.
-    - `Posti liberi: 2/4` -> `booked_seats: 2`, `max_seats: 4`.
-    - `Posti liberi: 0/3 Completo` -> `booked_seats: 3`, `max_seats: 3`.
-    - A deterministic regex safety net validates `Posti [liberi]: X/Y` in `core/ai_parser.py`.
-  - `max_seats` (int or null): Total maximum seats (`null` for no limit).
+    - `Posti liberi: 4/5` -> `booked_seats: 0`, `max_seats: 4`.
+    - `Posti liberi: 2/4` -> `booked_seats: 0`, `max_seats: 2`.
+    - `Posti liberi: 0/3 Completo` -> `booked_seats: 0`, `max_seats: 0`.
+    - A deterministic regex safety net enforces `max_seats = free` and `booked_seats = 0` in `core/ai_parser.py`.
   - `extra_info` (string): Additional details (difficulty/beginner friendliness, format/duration/campaign, trigger warnings/disclaimers/X-Card, genres).
   - `description` (string): Event pitch/synopsis.
 ### 2.3. Admin Review & Approval (`bot/callbacks.py`)
-- First, the raw `original_text` of the event is sent to `ADMIN_CHAT_ID` as a separate message so admins can verify if the AI made any mistakes.
+- For messages intercepted and deleted from `PUBLIC_CHANNEL_ID`, the raw `original_text` of the event is sent to `ADMIN_CHAT_ID` as a separate message so admins can verify if the AI made any mistakes (omitted for manual `/event_process` or `/ep` triggers where the original message is already in `ADMIN_CHAT_ID`).
 - Then, the parsed event is sent to `ADMIN_CHAT_ID` with inline keyboard buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
 - For privacy, the `Master/Host` field is omitted from generated Instagram Story images, but is displayed in the admin review message and the public channel post.
-- **[Discard]:** Deletes the local event image, updates DB status to `discarded`, updates message to `❌ DISCARDED`.
+- **[Discard]:** Deletes the local event image, updates DB status to `discarded`, updates message to `❌ SCARTATO`.
 - **[Cancel]:** Updates DB status to `cancelled`, updates message to `⚠️ ANNULLATO`.
 - **[Publish]:**
   1. Generates 1080x1920 Instagram Story image using `utils/image_utils.create_story_image()` and saves it in `[DATA_DIR]/YYYY/MM/DD/`.
@@ -103,7 +104,7 @@ The system automates the ingestion, standardization, social sharing, and booking
 ### 2.6. Daily Recap Generation (`core/scheduler.py` & `bot/handlers.py`)
 1. **Triggering:**
    - **Automatic:** Scheduled daily at **18:00** via APScheduler. Automatically checks if today is Monday, Wednesday, Friday, Saturday, or Sunday.
-   - **Manual:** Triggered via `/recap_generate` or `/recap_generate DD-MM-YYYY` (bypasses weekday check).
+   - **Manual:** Triggered via `/recap_generate` (or `/rg`) or `/recap_generate DD-MM-YYYY` / `/rg DD-MM-YYYY` (bypasses weekday check).
 2. **Data Aggregation:**
    - Queries `events` table for all `approved` and `cancelled` events where `normalized_date == date_str`.
 3. **Collage Assembly (`utils/image_utils.create_recap_collage`):**
@@ -135,11 +136,11 @@ When `[Publish Recap]` is clicked:
 4. **WordPress One-Click Publish:**
    - Clicking `[Pubblica su WordPress]` changes post status from `draft` to `publish` via REST API.
 
-### 2.8. Nightly Image Archiving (`core/scheduler.py` & `unzip_images.py`)
+### 2.8. Nightly Image Archiving (`core/scheduler.py` & `scripts/unzip_images.py`)
 - Automatically runs daily at **23:59** via APScheduler.
 - Checks today's folder (`[DATA_DIR]/YYYY/MM/DD/`) for images (`.jpg`, `.jpeg`, `.png`, `.webp`).
 - Compresses them into `archive.zip` inside the same folder and removes the original loose image files to save disk space.
-- Utility script `unzip_images.py` allows restoring images from `archive.zip` by specifying a folder, date, or date range.
+- Utility script `scripts/unzip_images.py` allows restoring images from `archive.zip` by specifying a folder, date, or date range.
 
 ---
 
@@ -149,7 +150,7 @@ When `[Publish Recap]` is clicked:
 GdG_Telegram_ChatToSocial/
 ├── bot/
 │   ├── __init__.py
-│   ├── handlers.py       # Message interceptors, command handlers (/event_process, /recap_generate)
+│   ├── handlers.py       # Message interceptors, command handlers (/event_process, /ep, /recap_generate, /rg)
 │   ├── callbacks.py      # Inline keyboard callback handlers (publish, discard, cancel, book, unbook, wp publish)
 │   └── keyboards.py      # Telegram inline keyboard layouts
 ├── core/
@@ -164,15 +165,16 @@ GdG_Telegram_ChatToSocial/
 │   ├── __init__.py
 │   ├── image_utils.py    # Pillow image manipulation: collages, story generation, date folder resolution
 │   └── templates.py      # Standardized Telegram message templates (stories, channel posts, recaps)
+├── scripts/              # Utility and maintenance scripts
+│   ├── clean_db.py       # Utility script to wipe database tables and clean image folders
+│   ├── unzip_images.py   # Utility script to extract archived images by directory or date range
+│   └── test_ig.py        # Diagnostic script to test Meta Graph API tokens
 ├── data/                 # Default local storage for SQLite DB, fonts, and images
 │   ├── Roboto-Bold.ttf
 │   ├── Roboto-Regular.ttf
 │   └── bot_database.db
 ├── .environments         # Environment configuration (secrets, tokens, IDs) - GIT IGNORED
 ├── .gitignore            # Git rules ignoring .environments, __pycache__, and data contents
-├── clean_db.py           # Utility script to wipe database tables and clean image folders
-├── unzip_images.py       # Utility script to extract archived images by directory or date range
-├── test_ig.py            # Diagnostic script to test Meta Graph API tokens
 ├── requirements.txt      # Python dependencies
 ├── main.py               # Application entry point
 ├── README.md             # User and operator manual

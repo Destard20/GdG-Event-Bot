@@ -129,20 +129,50 @@ def create_story_image(event_data, original_image_path, output_dir):
             margin = 60
             y = y_text_start
             
-            # Helper function to draw wrapped text preserving explicit newlines
-            def draw_wrapped_text(text, font, max_width_chars, y_pos, x_pos, color=(255, 255, 255)):
-                if not text: return y_pos
+            # Helper function to measure wrapped text height
+            def measure_wrapped_text_height(text, font_size, max_width_chars):
+                if not text: return 0
                 raw_lines = text.split('\n')
+                line_height = font_size + 10
+                total_h = 0
                 for r_line in raw_lines:
                     r_line = r_line.strip()
                     if not r_line:
-                        y_pos += int(font.size * 0.5)
+                        total_h += int(font_size * 0.5)
                         continue
                     lines = textwrap.wrap(r_line, width=max_width_chars)
-                    for line in lines:
+                    total_h += len(lines) * line_height
+                return total_h
+
+            # Helper function to draw wrapped text preserving explicit newlines
+            def draw_wrapped_text(text, font, max_width_chars, y_pos, x_pos, color=(255, 255, 255), max_y=None):
+                if not text: return y_pos
+                raw_lines = text.split('\n')
+                all_lines = []
+                for r_line in raw_lines:
+                    r_line = r_line.strip()
+                    if not r_line:
+                        all_lines.append(None)
+                    else:
+                        all_lines.extend(textwrap.wrap(r_line, width=max_width_chars))
+                
+                line_height = font.size + 10
+                for idx, line in enumerate(all_lines):
+                    if line is None:
+                        y_pos += int(font.size * 0.5)
+                        continue
+                    if max_y and (y_pos + line_height > max_y):
+                        break
+                    is_last_fit = max_y and (y_pos + line_height * 2 > max_y)
+                    has_more = (idx < len(all_lines) - 1)
+                    if is_last_fit and has_more:
+                        line_to_draw = line[:-3] + "..." if len(line) > 3 else line + "..."
+                        pilmoji.text((x_pos, y_pos), line_to_draw, font=font, fill=color)
+                        y_pos += line_height
+                        break
+                    else:
                         pilmoji.text((x_pos, y_pos), line, font=font, fill=color)
-                        # Approximation of text height based on font size (as getsize is deprecated)
-                        y_pos += font.size + 10
+                        y_pos += line_height
                 return y_pos
 
             # Draw Title
@@ -186,8 +216,26 @@ def create_story_image(event_data, original_image_path, output_dir):
             # Draw Description
             desc = (event_data.get('description') or '').strip()
             if desc:
-                char_width_wrap = int((STORY_WIDTH - (margin * 2)) / (font_desc.size * 0.5))
-                y = draw_wrapped_text(f"📝 {desc}", font_desc, char_width_wrap, y, margin, color=(220, 220, 220))
+                desc_text = f"📝 {desc}"
+                max_y = STORY_HEIGHT - margin
+                available_height = max(80, max_y - y)
+                
+                # Dynamically choose font size from 35 down to 20 to fit available height
+                chosen_size = 35
+                for sz in range(35, 19, -2):
+                    c_w = int((STORY_WIDTH - (margin * 2)) / (sz * 0.5))
+                    h = measure_wrapped_text_height(desc_text, sz, c_w)
+                    chosen_size = sz
+                    if h <= available_height:
+                        break
+                
+                try:
+                    font_desc_dynamic = ImageFont.truetype(os.path.join(FONTS_DIR, "Roboto-Regular.ttf"), chosen_size)
+                except Exception:
+                    font_desc_dynamic = ImageFont.load_default()
+                    
+                char_width_wrap = int((STORY_WIDTH - (margin * 2)) / (font_desc_dynamic.size * 0.5))
+                y = draw_wrapped_text(desc_text, font_desc_dynamic, char_width_wrap, y, margin, color=(220, 220, 220), max_y=max_y)
 
         # Save
         daily_dir = get_daily_dir(output_dir, event_data.get('normalized_date'))

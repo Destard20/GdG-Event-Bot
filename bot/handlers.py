@@ -80,7 +80,7 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_event_extraction(text, image_bytes, context, message_link, message.message_id)
         
 async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This responds to /event_process
+    # This responds to /event_process or /ep
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         await update.message.reply_text("Non sei autorizzato.")
         return
@@ -95,19 +95,19 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
             photo_file = await target_msg.photo[-1].get_file()
             image_bytes = await photo_file.download_as_bytearray()
             
-        await handle_event_extraction(text, image_bytes, context, target_msg.link, target_msg.message_id)
+        await handle_event_extraction(text, image_bytes, context, target_msg.link, target_msg.message_id, is_manual_trigger=True)
         await update.message.reply_text("Processato il messaggio risposto.")
     else:
         # try to parse from the command itself
         text_parts = update.message.text.split(maxsplit=1)
         if len(text_parts) > 1:
             text = text_parts[1]
-            await handle_event_extraction(text, None, context, None, update.message.message_id)
+            await handle_event_extraction(text, None, context, None, update.message.message_id, is_manual_trigger=True)
             await update.message.reply_text("Processato il testo inviato.")
         else:
             await update.message.reply_text("Rispondi a un messaggio o fornisci il testo.")
             
-async def handle_event_extraction(text, image_bytes, context, message_link=None, telegram_message_id=None):
+async def handle_event_extraction(text, image_bytes, context, message_link=None, telegram_message_id=None, is_manual_trigger=False):
     if not text:
         return
         
@@ -126,14 +126,15 @@ async def handle_event_extraction(text, image_bytes, context, message_link=None,
         logger.error("Failed to insert event into DB.")
         return
         
-    # Send original text for comparison
-    orig_msg = f"📥 Testo originale del messaggio:\n\n{text}"
-    if len(orig_msg) > 4000:
-        orig_msg = orig_msg[:3990] + "..."
-    try:
-        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=orig_msg)
-    except Exception as e:
-        logger.error(f"Error sending original text to admin: {e}")
+    # Send original text for comparison only if intercepted from channel (not manual trigger in admin chat)
+    if not is_manual_trigger:
+        orig_msg = f"📥 Testo originale del messaggio:\n\n{text}"
+        if len(orig_msg) > 4000:
+            orig_msg = orig_msg[:3990] + "..."
+        try:
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=orig_msg)
+        except Exception as e:
+            logger.error(f"Error sending original text to admin: {e}")
         
     # Send for approval
     story_text = format_instagram_story(event_data)
@@ -234,7 +235,7 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "/event_edit_date": "date",
         "/event_edit_normalized_date": "normalized_date",
         "/event_edit_system": "system",
-        "/edit_seats": "seats",
+        "/event_edit_seats": "seats",
         "/event_edit_booked": "booked_seats",
         "/event_edit_host": "host",
         "/event_edit_extra": "extra_info",
@@ -308,9 +309,9 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = target_msg.reply_markup
     
     if event['status'] == 'approved':
-        status_text = "\n\n✅ APPROVED FOR STORY"
+        status_text = "\n\n✅ APPROVATO"
     elif event['status'] == 'discarded':
-        status_text = "\n\n❌ DISCARDED"
+        status_text = "\n\n❌ SCARTATO"
     elif event['status'] == 'cancelled':
         status_text = "\n\n⚠️ ANNULLATO"
         

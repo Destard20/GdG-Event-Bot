@@ -27,19 +27,22 @@ def parse_event_message(message_text):
     - "booked_seats": The number of already booked seats (integer, default 0).
       CRITICAL RULE FOR SEATS:
       In this Italian association, "Posti: X/Y", "Posti liberi: X/Y", or "Posti disponibili: X/Y" ALWAYS means:
-      X = FREE/AVAILABLE seats
-      Y = TOTAL/MAXIMUM seats
-      Therefore:
-      booked_seats = Y - X
-      max_seats = Y
+      X = FREE/AVAILABLE seats that can be booked through this bot.
+      Y = TOTAL seats at the table. Any difference (Y - X) represents players already booked outside the bot (e.g. host's friends).
+      IMPORTANT: The bot ONLY manages bookings for the open seats.
+      Therefore, the event's bookable capacity MUST always be X:
+      max_seats = X
+      booked_seats = 0
+      seats = "X/X" (or "0/0 Completo" if X is 0)
       
       Examples:
-      - "Posti: 2/2" -> 2 free out of 2 total -> booked_seats = 0, max_seats = 2 (NOT full!)
-      - "Posti: 1/4" -> 1 free out of 4 total -> booked_seats = 3, max_seats = 4
-      - "Posti liberi: 2/4" -> 2 free out of 4 total -> booked_seats = 2, max_seats = 4
-      - "Posti: 0/3 Completo" -> 0 free out of 3 total -> booked_seats = 3, max_seats = 3 (Full!)
-      - "Posti: 4" (single number, no slash) -> 4 total available seats -> booked_seats = 0, max_seats = 4
-      - "Posti: no limit" or "quanti volete" -> booked_seats = 0, max_seats = null
+      - "Posti: 2/2" -> 2 free seats -> booked_seats = 0, max_seats = 2, seats = "2/2"
+      - "Posti: 1/4" -> 1 free seat -> booked_seats = 0, max_seats = 1, seats = "1/1"
+      - "Posti: 4/5" -> 4 free seats -> booked_seats = 0, max_seats = 4, seats = "4/4"
+      - "Posti liberi: 2/4" -> 2 free seats -> booked_seats = 0, max_seats = 2, seats = "2/2"
+      - "Posti: 0/3 Completo" -> 0 free seats -> booked_seats = 0, max_seats = 0, seats = "0/0 Completo"
+      - "Posti: 4" (single number, no slash) -> 4 total available seats -> booked_seats = 0, max_seats = 4, seats = "4/4"
+      - "Posti: no limit" or "quanti volete" -> booked_seats = 0, max_seats = null, seats = "no limit"
     - "max_seats": The maximum number of available seats (integer, or null if there is no limit).
     - "extra_info": Additional metadata or disclaimers if present in the message, specifically:
       - Difficulty / Beginner friendliness (e.g. "Difficoltà: adatto a tutti", "Adatto a neofiti: Sì")
@@ -71,21 +74,22 @@ def parse_event_message(message_text):
             m = re.search(r'Posti(?:\s+liberi|\s+disponibili)?\s*:\s*(\d+)\s*/\s*(\d+)', message_text, re.IGNORECASE)
             if m:
                 free = int(m.group(1))
-                total = int(m.group(2))
-                if total >= 0:
-                    data['max_seats'] = total
-                    data['booked_seats'] = max(0, total - free)
-                    if free == 0 and total > 0:
-                        data['seats'] = f"0/{total} Completo"
-                    else:
-                        data['seats'] = f"{free}/{total}"
+                data['max_seats'] = free
+                data['booked_seats'] = 0
+                if free == 0:
+                    data['seats'] = "0/0 Completo"
+                else:
+                    data['seats'] = f"{free}/{free}"
             else:
                 m_single = re.search(r'Posti(?:\s+liberi|\s+disponibili)?\s*:\s*(\d+)(?!\s*/)', message_text, re.IGNORECASE)
                 if m_single:
                     val = int(m_single.group(1))
                     data['max_seats'] = val
                     data['booked_seats'] = 0
-                    data['seats'] = f"{val}/{val}"
+                    if val == 0:
+                        data['seats'] = "0/0 Completo"
+                    else:
+                        data['seats'] = f"{val}/{val}"
                         
         return data
     except Exception as e:

@@ -23,9 +23,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = get_cancel_only_keyboard(event_id)
         
         try:
-            await query.edit_message_caption(caption=f"{query.message.caption}\n\n✅ APPROVED FOR STORY", reply_markup=keyboard)
+            await query.edit_message_caption(caption=f"{query.message.caption}\n\n✅ APPROVATO", reply_markup=keyboard)
         except:
-            await query.edit_message_text(text=f"{query.message.text}\n\n✅ APPROVED FOR STORY", reply_markup=keyboard)
+            await query.edit_message_text(text=f"{query.message.text}\n\n✅ APPROVATO", reply_markup=keyboard)
             
         # IG Publishing flow
         event = get_event(event_id)
@@ -96,9 +96,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if event and event['image_path']:
             delete_local_image(event['image_path'])
         try:
-            await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ DISCARDED")
+            await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ SCARTATO")
         except:
-            await query.edit_message_text(text=f"{query.message.text}\n\n❌ DISCARDED")
+            await query.edit_message_text(text=f"{query.message.text}\n\n❌ SCARTATO")
             
     elif data.startswith("cancel_event_"):
         event_id = int(data.split("_")[2])
@@ -219,9 +219,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif data.startswith("discard_recap_"):
         try:
-            await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ RECAP DISCARDED")
+            await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ RECAP SCARTATO")
         except:
-            await query.edit_message_text(text=f"{query.message.text}\n\n❌ RECAP DISCARDED")
+            await query.edit_message_text(text=f"{query.message.text}\n\n❌ RECAP SCARTATO")
             
     elif data.startswith("publish_wp_"):
         post_id = int(data.split("_")[2])
