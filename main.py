@@ -1,5 +1,6 @@
 import logging
 from telegram import Update
+from telegram.error import NetworkError
 from telegram.ext import ContextTypes
 
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, CallbackQueryHandler
@@ -31,6 +32,16 @@ async def post_init(application: Application):
 async def post_shutdown(application: Application):
     from core.scheduler import stop_scheduler
     stop_scheduler()
+
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global error handler catching exceptions across all handlers and polling loops."""
+    if isinstance(context.error, NetworkError):
+        logger.warning(
+            "Errore di rete temporaneo con Telegram (natura transiente, si risolve automaticamente): %s",
+            context.error
+        )
+    else:
+        logger.error("Eccezione non gestita durante l'elaborazione di un update:", exc_info=context.error)
 
 def main():
     if not TELEGRAM_BOT_TOKEN:
@@ -103,6 +114,9 @@ def main():
         
     # Callback queries (buttons)
     application.add_handler(CallbackQueryHandler(handle_approval))
+
+    # Global error handler
+    application.add_error_handler(global_error_handler)
     
     logger.info("Bot in esecuzione...")
     application.run_polling()
