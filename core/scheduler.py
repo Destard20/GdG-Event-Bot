@@ -122,6 +122,16 @@ async def archive_today_images():
     except Exception as e:
         logger.error(f"Archive: Error creating zip archive in {target_dir}: {e}")
 
+async def archive_completed_month_logs():
+    try:
+        from core.config import LOGS_DIR
+        from core.log_utils import zip_completed_months
+        archived = zip_completed_months(LOGS_DIR)
+        if archived:
+            logger.info(f"Archive: Zipped monthly log files: {archived}")
+    except Exception as e:
+        logger.error(f"Archive: Error checking and zipping monthly logs: {e}")
+
 scheduler_instance = None
 
 def start_scheduler(bot):
@@ -131,6 +141,8 @@ def start_scheduler(bot):
     scheduler_instance.add_job(generate_daily_recap, 'cron', hour=18, minute=0, args=[bot])
     # Schedule daily image archive at 23:59
     scheduler_instance.add_job(archive_today_images, 'cron', hour=23, minute=59)
+    # Schedule check and zipping of ended month logs daily at 00:05
+    scheduler_instance.add_job(archive_completed_month_logs, 'cron', hour=0, minute=5)
     scheduler_instance.start()
 
 def stop_scheduler():

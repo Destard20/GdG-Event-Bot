@@ -31,3 +31,7 @@ FONTS_DIR = os.path.join(PROJECT_ROOT, "data") # Fonts remain in the project's d
 
 DB_PATH = os.path.join(DATA_DIR, "bot_database.db")
 
+LOGS_DIR = os.path.join(DATA_DIR, "logs")
+if not os.path.exists(LOGS_DIR):
+    os.makedirs(LOGS_DIR, exist_ok=True)
+

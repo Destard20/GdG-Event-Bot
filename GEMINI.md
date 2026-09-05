@@ -180,6 +180,12 @@ When `[Publish Recap]` is clicked:
 - Compresses them into `archive.zip` inside the same folder and removes the original loose image files to save disk space.
 - Utility script `scripts/unzip_images.py` allows restoring images from `archive.zip` by specifying a folder, date, or date range.
 
+### 2.9. Daily Log Rotation & Monthly Log Archiving (`core/log_utils.py` & `core/scheduler.py`)
+- Application logging is recorded simultaneously to stdout/terminal and daily log files in `[DATA_DIR]/logs/bot.log`.
+- Log files rotate daily at midnight via `DailyMonthlyLogHandler` (`TimedRotatingFileHandler`).
+- Upon each daily rotation (as well as on startup and via a nightly check at 00:05 in `core/scheduler.py`), the system checks whether the previous month has ended.
+- Daily logs from ended months are aggregated and compressed into `[DATA_DIR]/logs/bot_logs_YYYY-MM.zip`, and the loose daily log files for that month are deleted to save disk space.
+
 ---
 
 ## 3. Directory Structure
@@ -197,6 +203,7 @@ GdG-Event-Bot/
 │   ├── db.py             # SQLite CRUD operations for events and reservations
 │   ├── ai_parser.py      # Gemini API integration: message extraction and WP article generation
 │   ├── scheduler.py      # APScheduler job running daily at 18:00 for recaps
+│   ├── log_utils.py      # Daily rotating log handler and monthly log zip archiving
 │   ├── wordpress.py      # WordPress REST API: media uploads, post drafting, and publishing
 │   └── instagram.py      # Meta Graph API: container creation & story publishing
 ├── utils/

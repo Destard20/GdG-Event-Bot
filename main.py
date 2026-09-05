@@ -1,10 +1,14 @@
+import os
 import logging
 from telegram import Update
 from telegram.error import NetworkError
 from telegram.ext import ContextTypes
 
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, CallbackQueryHandler
-from core.config import TELEGRAM_BOT_TOKEN, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID, ADMIN_CHAT_ID
+from core.config import (
+    TELEGRAM_BOT_TOKEN, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID, ADMIN_CHAT_ID,
+    LOGS_DIR
+)
 from core.db import init_db
 from bot.handlers import (
     process_message, manual_trigger_command, manual_recap_command, 
@@ -14,10 +18,17 @@ from bot.handlers import (
 )
 from bot.callbacks import handle_approval
 from core.scheduler import start_scheduler
+from core.log_utils import DailyMonthlyLogHandler
+
+log_file_path = os.path.join(LOGS_DIR, "bot.log")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        DailyMonthlyLogHandler(log_file_path),
+        logging.StreamHandler()
+    ]
 )
 
 # Set httpx logging to WARNING to prevent clutter from Telegram getUpdates polling

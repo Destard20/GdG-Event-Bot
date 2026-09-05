@@ -13,7 +13,7 @@ class TestGlobalErrorHandler(unittest.IsolatedAsyncioTestCase):
             await global_error_handler(update, context)
             mock_logger.warning.assert_called_once()
             args, _ = mock_logger.warning.call_args
-            self.assertIn("transiente", args[0])
+            self.assertIn("temporaneo", args[0])
             self.assertIn("si risolve automaticamente", args[0])
             self.assertEqual(args[1], context.error)
             mock_logger.error.assert_not_called()
