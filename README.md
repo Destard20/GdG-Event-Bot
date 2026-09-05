@@ -25,7 +25,7 @@ This application monitors a Telegram channel, extracts event information using *
 
 ## Features
 
-- **Automated Telegram Channel Interception:** Listens to the public announcement channel. When an admin posts a game event with an image, the bot intercepts it, deletes the raw post, parses the content with Gemini AI, and routes it to an admin review chat.
+- **Automated Telegram Channel Interception:** Listens to the public announcement channel. When an admin posts a message, the bot parses the content with Gemini AI. If confirmed as a bookable event, the bot deletes the raw post and routes it to an admin review chat; non-event announcements, reminders, and notices are left untouched in the channel.
 - **Interactive Live Booking System & Same-Day Conflict Warnings:** Published events feature inline `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` buttons. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically. If a user reserves a seat on multiple valid events on the same day, the bot automatically warns them in chat with links to all conflicting events so they can choose which to keep.
 - **Event Cancellation:** Admins can cancel any event at any time using a persistent `[Cancel]` button. Cancelled events update live in the channel and are flagged as `[ANNULLATO]` with zero seats in recaps and graphics.
 - **Daily Recaps & Multi-Image Collages:** Automatically runs at 18:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/recap_generate`. Stitches event artwork into clean horizontal collages without cropping borders.
@@ -120,7 +120,7 @@ python3 main.py
 
 ### 1. New Event Flow
 - **Channel Ingestion:** Admins post an announcement text with a picture to the public channel (`PUBLIC_CHANNEL_ID`).
-- **Auto-Interception:** The bot immediately deletes the raw post and parses the content via Gemini.
+- **Deferred Auto-Interception:** The bot parses the content via Gemini AI first. If confirmed as an event, it deletes the raw post from the public channel and routes it to admin review; if it is not an event, it is preserved in the channel.
 - **Admin Review:** The parsed event is forwarded to `ADMIN_CHAT_ID` with buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
 - **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` to the public channel and generates the Instagram Story graphic locally.
 - **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process` (or shortcut `/ep`).

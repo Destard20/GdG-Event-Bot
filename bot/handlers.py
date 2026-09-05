@@ -186,6 +186,8 @@ async def finalize_media_group(media_group_id: str, context: ContextTypes.DEFAUL
     images = group.get("images", [])
     message_link = group.get("message_link")
     message_id = group.get("message_id")
+    messages = group.get("messages", [])
+    is_public_channel = group.get("is_public_channel", False)
 
     if not text:
         logger.info(f"Media group {media_group_id} had no text caption. Ignoring.")
@@ -201,13 +203,24 @@ async def finalize_media_group(media_group_id: str, context: ContextTypes.DEFAUL
     else:
         image_bytes_to_use = None
 
+    delete_callback = None
+    if is_public_channel and messages:
+        async def delete_album_messages():
+            for msg in messages:
+                try:
+                    await msg.delete()
+                except Exception as e:
+                    logger.error(f"Errore durante l'eliminazione del messaggio {getattr(msg, 'message_id', 'unknown')} dell'album: {e}")
+        delete_callback = delete_album_messages
+
     await handle_event_extraction(
         text=text,
         image_bytes=image_bytes_to_use,
         context=context,
         message_link=message_link,
         telegram_message_id=message_id,
-        is_manual_trigger=False
+        is_manual_trigger=False,
+        delete_callback=delete_callback
     )
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -232,13 +245,7 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if button.callback_data and button.callback_data.startswith(("book_", "unbook_")):
                     return
 
-    # Se il messaggio arriva dal canale pubblico, eliminalo per evitare duplicati non formattati
     is_public_channel = str(message.chat_id) == str(PUBLIC_CHANNEL_ID)
-    if is_public_channel:
-        try:
-            await message.delete()
-        except Exception as e:
-            logger.error(f"Errore durante l'eliminazione del messaggio originale: {e}")
 
     media_group_id = message.media_group_id
     if media_group_id:
@@ -249,6 +256,8 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "text": None,
                 "message_link": None if is_public_channel else message.link,
                 "message_id": message.message_id,
+                "messages": [],
+                "is_public_channel": is_public_channel,
                 "last_received": now,
                 "pending_downloads": 0,
                 "task": None,
@@ -256,6 +265,7 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         group = media_groups[media_group_id]
         group["last_received"] = now
+        group["messages"].append(message)
 
         text = message.text or message.caption
         if text and not group["text"]:
@@ -294,8 +304,25 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error downloading photo: {e}")
 
+    delete_callback = None
+    if is_public_channel:
+        async def delete_single_message():
+            try:
+                await message.delete()
+            except Exception as e:
+                logger.error(f"Errore durante l'eliminazione del messaggio originale: {e}")
+        delete_callback = delete_single_message
+
     message_link = None if is_public_channel else message.link
-    await handle_event_extraction(text, image_bytes, context, message_link, message.message_id)
+    await handle_event_extraction(
+        text=text,
+        image_bytes=image_bytes,
+        context=context,
+        message_link=message_link,
+        telegram_message_id=message.message_id,
+        is_manual_trigger=False,
+        delete_callback=delete_callback
+    )
         
 async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # This responds to /event_process or /ep
@@ -387,7 +414,7 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
         else:
             await update.message.reply_text("Rispondi a un messaggio o fornisci il testo.")
             
-async def handle_event_extraction(text, image_bytes, context, message_link=None, telegram_message_id=None, is_manual_trigger=False):
+async def handle_event_extraction(text, image_bytes, context, message_link=None, telegram_message_id=None, is_manual_trigger=False, delete_callback=None):
     if not text:
         return False
         
@@ -404,6 +431,12 @@ async def handle_event_extraction(text, image_bytes, context, message_link=None,
     if not event_data or event_data.get('is_event') is False:
         logger.info("Message is not an event or could not be parsed.")
         return False
+
+    if delete_callback:
+        try:
+            await delete_callback()
+        except Exception as e:
+            logger.error(f"Errore durante l'eliminazione del messaggio originale: {e}")
         
     image_path = None
     if image_bytes:

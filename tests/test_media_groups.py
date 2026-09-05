@@ -204,7 +204,8 @@ class TestMultiImageCollageAndMediaGroup(unittest.IsolatedAsyncioTestCase):
             if media_group_id in media_groups and media_groups[media_group_id]["task"]:
                 await media_groups[media_group_id]["task"]
 
-            m1.delete.assert_called_once()
+            # Messages without caption are not events and must NOT be deleted from the public channel
+            m1.delete.assert_not_called()
             mock_extract.assert_not_called()
 
     async def test_single_photo_message_processed_immediately(self):
@@ -230,16 +231,24 @@ class TestMultiImageCollageAndMediaGroup(unittest.IsolatedAsyncioTestCase):
         context = MagicMock()
         update1 = MagicMock(message=m1, channel_post=None)
 
+        async def fake_handle_extraction(*args, **kwargs):
+            del_cb = kwargs.get("delete_callback")
+            if del_cb:
+                await del_cb()
+            return True
+
         with patch("bot.handlers.PUBLIC_CHANNEL_ID", public_channel_id), \
-             patch("bot.handlers.handle_event_extraction", new_callable=AsyncMock) as mock_extract:
+             patch("bot.handlers.handle_event_extraction", side_effect=fake_handle_extraction) as mock_extract:
 
             await process_message(update1, context)
 
             m1.delete.assert_called_once()
             self.assertEqual(len(media_groups), 0)
             mock_extract.assert_called_once()
-            self.assertEqual(mock_extract.call_args[0][0], m1.caption)
-            self.assertEqual(mock_extract.call_args[0][1], bytearray(b1))
+            extracted_text = mock_extract.call_args.kwargs.get("text") if mock_extract.call_args.kwargs else mock_extract.call_args[0][0]
+            extracted_bytes = mock_extract.call_args.kwargs.get("image_bytes") if mock_extract.call_args.kwargs else mock_extract.call_args[0][1]
+            self.assertEqual(extracted_text, m1.caption)
+            self.assertEqual(extracted_bytes, bytearray(b1))
 
 
 
