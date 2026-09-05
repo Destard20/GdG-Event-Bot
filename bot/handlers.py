@@ -415,7 +415,7 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text("Rispondi a un messaggio o fornisci il testo.")
             
 EVENT_KEYWORD_PATTERNS = [
-    re.compile(r"\b(titolo|posti\s+liberi|descrizione|sinossi|gioco|quando|data)\s*:", re.IGNORECASE),
+    re.compile(r"\b(titolo|posti(\s+liberi)?|descrizione|sinossi|gioco|quando|data)\s*:", re.IGNORECASE),
     re.compile(r"\b(gioco\s+da\s+tavolo|gioco\s+di\s+ruolo|oneshot|one[\s\-]shot)\b", re.IGNORECASE),
 ]
 

@@ -43,7 +43,7 @@ The system automates the ingestion, standardization, social sharing, and booking
        - Checks if the message was sent by a bot (`from_user.is_bot`). If so, it is ignored.
        - Checks if the message already contains booking callback buttons (`book_` / `unbook_`). If so, it ignores it.
        - **Event Keywords Check (`contains_event_keywords`):** Checks if the text contains at least one recognized event keyword (case-insensitive, colon optional whitespace):
-         - Colon keywords: `Titolo:`, `Posti liberi:`, `Descrizione:`, `Sinossi:`, `Gioco:`, `Quando:`, `Data:`
+         - Colon keywords: `Titolo:`, `Posti:`, `Posti liberi:`, `Descrizione:`, `Sinossi:`, `Gioco:`, `Quando:`, `Data:`
          - Phrase keywords: `Gioco da tavolo`, `Gioco di ruolo`, `Oneshot`, `One shot`
          - If none of these keywords are present, the message is ignored and the AI call is completely skipped, saving API quota.
      - **AI Event Confirmation & Deferred Deletion:** For messages passing the pre-filters, the post is evaluated by Gemini AI (`core/ai_parser.py`):

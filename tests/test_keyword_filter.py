@@ -9,6 +9,7 @@ class TestKeywordPreFilter(unittest.IsolatedAsyncioTestCase):
         colon_keywords = [
             "Titolo",
             "Posti liberi",
+            "Posti",
             "Descrizione",
             "Sinossi",
             "SInossi",
@@ -70,7 +71,7 @@ class TestKeywordPreFilter(unittest.IsolatedAsyncioTestCase):
             "Avviso importante: domani la sede rimarrà chiusa per festività.",
             "Ricordate di pagare la quota associativa entro fine mese!",
             "Ciao a tutti, ci vediamo presto in associazione.",
-            "Posti: 4",  # 'Posti:' without 'liberi' is not an event keyword
+            "Numero partecipanti: 4",
             "",
             None,
         ]
