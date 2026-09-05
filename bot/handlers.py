@@ -414,8 +414,26 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
         else:
             await update.message.reply_text("Rispondi a un messaggio o fornisci il testo.")
             
+EVENT_KEYWORD_PATTERNS = [
+    re.compile(r"\b(titolo|posti\s+liberi|descrizione|sinossi|gioco|quando|data)\s*:", re.IGNORECASE),
+    re.compile(r"\b(gioco\s+da\s+tavolo|gioco\s+di\s+ruolo|oneshot|one[\s\-]shot)\b", re.IGNORECASE),
+]
+
+def contains_event_keywords(text: str) -> bool:
+    """
+    Programmatic pre-filter to check if the message contains keywords indicative of an event.
+    Returns True if at least one event keyword is found, False otherwise.
+    """
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in EVENT_KEYWORD_PATTERNS)
+
 async def handle_event_extraction(text, image_bytes, context, message_link=None, telegram_message_id=None, is_manual_trigger=False, delete_callback=None):
     if not text:
+        return False
+
+    if not is_manual_trigger and not contains_event_keywords(text):
+        logger.info("Message does not contain any event keywords. Skipping AI extraction.")
         return False
         
     try:

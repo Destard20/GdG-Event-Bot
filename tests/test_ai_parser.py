@@ -64,7 +64,7 @@ class TestGeminiQuotaDepletionAlert(unittest.IsolatedAsyncioTestCase):
              patch("bot.handlers.ADMIN_CHAT_ID", "999"):
 
             success = await handle_event_extraction(
-                text="Sessione D&D...",
+                text="Titolo: Sessione D&D...",
                 image_bytes=None,
                 context=context,
                 message_link=None,

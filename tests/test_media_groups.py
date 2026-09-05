@@ -95,7 +95,7 @@ class TestMultiImageCollageAndMediaGroup(unittest.IsolatedAsyncioTestCase):
         m2.from_user.is_bot = False
         m2.reply_markup = None
         m2.text = None
-        m2.caption = "Sessione Speciale D&D Sabato 05-09-2026 ore 21:00 Posti 4/5 Master: Gandalf"
+        m2.caption = "Titolo: Sessione Speciale D&D\nQuando: Sabato 05-09-2026 ore 21:00\nPosti liberi: 4/5\nMaster: Gandalf"
         m2.message_id = 102
         m2.delete = AsyncMock()
         p2 = MagicMock()

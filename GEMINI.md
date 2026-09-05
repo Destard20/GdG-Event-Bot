@@ -38,8 +38,15 @@ The system automates the ingestion, standardization, social sharing, and booking
 1. **Public Channel Interception (`bot/handlers.py`):**
    - The bot listens to `PUBLIC_CHANNEL_ID`.
    - When an admin posts a message with text and an image:
-     - The bot checks if the message was sent by a bot or already contains booking callback buttons (`book_` / `unbook_`). If so, it ignores it to prevent loops.
-     - **AI Event Confirmation & Deferred Deletion:** The bot does not delete posts immediately upon arrival. The post is first evaluated by Gemini AI (`core/ai_parser.py`):
+     - **Programmatic Pre-Filters:**
+       - Checks if the bot is paused (`/bot_pause`). If paused, the message is ignored.
+       - Checks if the message was sent by a bot (`from_user.is_bot`). If so, it is ignored.
+       - Checks if the message already contains booking callback buttons (`book_` / `unbook_`). If so, it ignores it.
+       - **Event Keywords Check (`contains_event_keywords`):** Checks if the text contains at least one recognized event keyword (case-insensitive, colon optional whitespace):
+         - Colon keywords: `Titolo:`, `Posti liberi:`, `Descrizione:`, `Sinossi:`, `Gioco:`, `Quando:`, `Data:`
+         - Phrase keywords: `Gioco da tavolo`, `Gioco di ruolo`, `Oneshot`, `One shot`
+         - If none of these keywords are present, the message is ignored and the AI call is completely skipped, saving API quota.
+     - **AI Event Confirmation & Deferred Deletion:** For messages passing the pre-filters, the post is evaluated by Gemini AI (`core/ai_parser.py`):
        - **If confirmed as an event (`is_event != False`):** The original raw message(s) are deleted from the public channel to avoid unformatted duplicates, and the event is routed to admin review.
        - **If not an event (`is_event == False` or unparseable):** The post is considered a general announcement, reminder, or notice and is preserved intact in the channel without deletion or database insertion.
      - **Multi-Image Media Groups (Albums 2–4 photos):** When an event arrives with multiple photos sharing a `media_group_id`, updates and message references are aggregated in memory across a 2-second silence buffer. If Gemini confirms the post is an event, all aggregated messages in the album are batch-deleted together. Once aggregated, `utils/image_utils.create_collage_from_bytes` builds a uniform horizontal collage (matching recap collage rules: uniform average height, preserved individual aspect ratios, no cropping or distortion). Only the stitched collage is saved as `event_{uuid}.jpg` in `[DATA_DIR]/YYYY/MM/DD/`; individual raw photos are never written to disk.
@@ -48,6 +55,7 @@ The system automates the ingestion, standardization, social sharing, and booking
 2. **Manual Ingestion (`/event_process` or `/ep`):**
    - An admin can send an image or multi-image album with text to `ADMIN_CHAT_ID` and reply `/event_process` or `/ep` (or include text directly in the command: `/ep <testo>`).
    - Photos/albums sent in `ADMIN_CHAT_ID` are silently cached in memory. When replying with `/ep` to any photo in an album, the bot aggregates all sibling photos of that `media_group_id`, stitches them into a horizontal collage using `utils/image_utils.create_collage_from_bytes`, and resolves text from the command, replied message, or album captions.
+   - **Note:** Manual triggers bypass the keyword pre-filter, enabling admins to process events with non-standard formatting.
    - Operates through the identical parsing and review pipeline.
 3. **Monitoring Pause / Resume (`/bot_pause`, `/bot_resume`, `/bot_status`):**
    - Admins can send `/bot_pause` in `ADMIN_CHAT_ID` to make the bot temporarily "blind" to `PUBLIC_CHANNEL_ID` (it will not intercept, parse, or delete messages from the channel).

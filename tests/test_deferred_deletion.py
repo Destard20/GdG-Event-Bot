@@ -32,7 +32,7 @@ class TestDeferredMessageDeletion(unittest.IsolatedAsyncioTestCase):
         message.media_group_id = None
         message.from_user.is_bot = False
         message.reply_markup = None
-        message.text = "Avviso ai soci: sabato la sede sarà chiusa per manutenzione."
+        message.text = "Descrizione: Avviso ai soci, sabato la sede sarà chiusa per manutenzione."
         message.caption = None
         message.photo = None
         message.message_id = 501
@@ -76,7 +76,7 @@ class TestDeferredMessageDeletion(unittest.IsolatedAsyncioTestCase):
         message.media_group_id = None
         message.from_user.is_bot = False
         message.reply_markup = None
-        message.text = "D&D 5e: Phandelver\nSabato 12-09-2026 ore 21:00\nMaster: Gandalf\nPosti: 5"
+        message.text = "Titolo: D&D 5e: Phandelver\nQuando: Sabato 12-09-2026 ore 21:00\nMaster: Gandalf\nPosti liberi: 5"
         message.caption = None
         message.photo = None
         message.message_id = 502
@@ -123,7 +123,7 @@ class TestDeferredMessageDeletion(unittest.IsolatedAsyncioTestCase):
         m1.from_user.is_bot = False
         m1.reply_markup = None
         m1.text = None
-        m1.caption = "Nuove miniature arrivate in associazione! Venite a vederle!"
+        m1.caption = "Descrizione: Nuove miniature per gioco da tavolo arrivate in associazione! Venite a vederle!"
         m1.message_id = 601
         m1.delete = AsyncMock()
         p1 = MagicMock()
@@ -194,7 +194,7 @@ class TestDeferredMessageDeletion(unittest.IsolatedAsyncioTestCase):
         m1.from_user.is_bot = False
         m1.reply_markup = None
         m1.text = None
-        m1.caption = "Campagna Call of Cthulhu Sabato 19-09-2026 ore 21:00 Posti: 4"
+        m1.caption = "Titolo: Campagna Call of Cthulhu\nQuando: Sabato 19-09-2026 ore 21:00\nPosti liberi: 4"
         m1.message_id = 701
         m1.delete = AsyncMock()
         p1 = MagicMock()
