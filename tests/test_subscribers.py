@@ -35,6 +35,7 @@ from bot.service import (
 from utils.templates import (
     format_event_title_link,
     format_event_participants_message,
+    format_reservation_subscriber_display,
     recap_generate_text,
     recap_links_text,
 )
@@ -1038,6 +1039,167 @@ class TestDeepLinkAndBookingKeyboard(unittest.IsolatedAsyncioTestCase):
         await start_command(update, context)
 
         update.message.reply_text.assert_called_once_with("❌ Evento non trovato o già rimosso.")
+
+
+class TestSubscribersWithoutUsername(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "test_subs_no_uname.db")
+        self.db_patch = patch("core.db.DB_PATH", self.db_path)
+        self.db_patch.start()
+        db.init_db()
+
+        self.event_id = db.insert_event({
+            "title": "One-Shot Senza Username",
+            "date": "2026-10-10",
+            "normalized_date": "2026-10-10",
+            "system": "D&D 5e",
+            "host": "Master",
+            "seats": "3/3",
+            "max_seats": 3,
+            "booked_seats": 0,
+            "image_path": "dummy.jpg",
+            "message_link": "https://t.me/c/123/789"
+        }, "dummy.jpg", "raw")
+        db.update_event_status(self.event_id, "approved")
+
+    def tearDown(self):
+        self.db_patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_format_reservation_subscriber_display(self):
+        res1 = {"username": "steucestari", "user_id": 1609031146, "full_name": None}
+        self.assertEqual(format_reservation_subscriber_display(res1, as_html=True), "@steucestari")
+        self.assertEqual(format_reservation_subscriber_display(res1, as_html=False), "@steucestari")
+
+        res2 = {"username": None, "user_id": 8893283822, "full_name": "Lorenzo Duarte"}
+        self.assertEqual(
+            format_reservation_subscriber_display(res2, as_html=True),
+            '<a href="tg://user?id=8893283822">Lorenzo Duarte</a>'
+        )
+        self.assertEqual(
+            format_reservation_subscriber_display(res2, as_html=False),
+            "Lorenzo Duarte"
+        )
+
+        res3 = {"username": "Lorenzo Duarte", "user_id": 8893283822, "full_name": None}
+        self.assertEqual(
+            format_reservation_subscriber_display(res3, as_html=True),
+            '<a href="tg://user?id=8893283822">Lorenzo Duarte</a>'
+        )
+        self.assertEqual(
+            format_reservation_subscriber_display(res3, as_html=False),
+            "Lorenzo Duarte"
+        )
+
+        res4 = {"username": "", "user_id": 99999, "full_name": None}
+        self.assertEqual(format_reservation_subscriber_display(res4, as_html=True), "ID:99999")
+        self.assertEqual(format_reservation_subscriber_display(res4, as_html=False), "ID:99999")
+
+    def test_format_event_participants_message_no_at_for_non_username(self):
+        event = db.get_event(self.event_id)
+        reservations = [
+            {"username": "steucestari", "user_id": 1609031146, "full_name": None, "seats_booked": 1},
+            {"username": None, "user_id": 8893283822, "full_name": "Lorenzo Duarte", "seats_booked": 1},
+            {"username": "ChicoMalo96", "user_id": 297895076, "full_name": None, "seats_booked": 1},
+        ]
+        msg = format_event_participants_message(event, reservations)
+
+        self.assertIn("<b>@steucestari</b>", msg)
+        self.assertIn("<b>@ChicoMalo96</b>", msg)
+        self.assertNotIn("@Lorenzo", msg)
+        self.assertIn('<b><a href="tg://user?id=8893283822">Lorenzo Duarte</a></b>', msg)
+
+    def test_format_subscribers_tags_no_at_for_non_username(self):
+        reservations = [
+            {"username": "steucestari", "user_id": 1609031146, "full_name": None},
+            {"username": None, "user_id": 8893283822, "full_name": "Lorenzo Duarte"},
+            {"username": "ChicoMalo96", "user_id": 297895076, "full_name": None},
+        ]
+        tags = format_subscribers_tags(reservations)
+        self.assertIn("@steucestari", tags)
+        self.assertIn("@ChicoMalo96", tags)
+        self.assertNotIn("@Lorenzo", tags)
+        self.assertIn('<a href="tg://user?id=8893283822">Lorenzo Duarte</a>', tags)
+
+    def test_format_subscribers_management_view_no_at_for_non_username(self):
+        event = db.get_event(self.event_id)
+        reservations = [
+            {"username": None, "user_id": 8893283822, "full_name": "Lorenzo Duarte", "seats_booked": 1},
+        ]
+        view = format_subscribers_management_view(event, reservations)
+        self.assertNotIn("@Lorenzo", view)
+        self.assertIn('<b><a href="tg://user?id=8893283822">Lorenzo Duarte</a></b> — 1 posto', view)
+
+    def test_get_subscribers_management_keyboard_no_at_for_non_username(self):
+        reservations = [
+            {"id": 1, "username": None, "user_id": 8893283822, "full_name": "Lorenzo Duarte", "seats_booked": 1},
+        ]
+        kb = get_subscribers_management_keyboard(self.event_id, reservations)
+        btn_texts = [btn.text for row in kb.inline_keyboard for btn in row]
+        for t in btn_texts:
+            self.assertNotIn("@Lorenzo", t)
+        self.assertTrue(any("Lorenzo Dua…" in t for t in btn_texts))
+
+    async def test_handle_seat_booking_for_user_without_username(self):
+        user = MagicMock()
+        user.id = 8893283822
+        user.username = None
+        user.first_name = "Lorenzo"
+        user.last_name = "Duarte"
+        user.full_name = "Lorenzo Duarte"
+
+        query = MagicMock()
+        query.message.chat_id = -100123456
+        query.message.message_id = 111
+        query.answer = AsyncMock()
+
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.PUBLIC_CHANNEL_ID", "-1007890"), \
+             patch("bot.service.update_event_messages", AsyncMock()):
+            await handle_seat_booking(self.event_id, user, query, context)
+
+            res = db.get_reservation_by_user(self.event_id, user_id=8893283822)
+            self.assertIsNotNone(res)
+            self.assertIsNone(res["username"])
+            self.assertEqual(res["full_name"], "Lorenzo Duarte")
+            self.assertEqual(res["seats_booked"], 1)
+
+            context.bot.send_message.assert_called()
+            sent_text = context.bot.send_message.call_args[1]["text"]
+            self.assertNotIn("@Lorenzo", sent_text)
+            self.assertIn('<a href="tg://user?id=8893283822">Lorenzo Duarte</a>', sent_text)
+
+            await handle_seat_unbooking(self.event_id, user, query, context)
+            res_after = db.get_reservation_by_user(self.event_id, user_id=8893283822)
+            self.assertIsNone(res_after)
+
+    async def test_send_admin_action_notice_for_user_without_username(self):
+        event = db.get_event(self.event_id)
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        admin_user = MagicMock()
+        admin_user.username = "admin_user"
+        admin_user.first_name = "Admin"
+
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"):
+            await send_admin_action_notice(
+                context=context,
+                event=event,
+                target_username=None,
+                target_full_name="Lorenzo Duarte",
+                target_user_id=8893283822,
+                action="add",
+                seats=1,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_called_once()
+            text = context.bot.send_message.call_args[1]["text"]
+            self.assertNotIn("@Lorenzo", text)
+            self.assertIn('<a href="tg://user?id=8893283822">Lorenzo Duarte</a>', text)
 
     async def test_start_command_without_args(self):
         update = MagicMock()

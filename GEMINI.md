@@ -272,7 +272,8 @@ GdG-Event-Bot/
 | `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique reservation ID |
 | `event_id` | INTEGER | | Foreign key referencing `events(id)` |
 | `user_id` | INTEGER | | Telegram User ID of participant |
-| `username` | TEXT | | Telegram username or first name |
+| `username` | TEXT | | Telegram username (without @) or null if user has no handle |
+| `full_name` | TEXT | | Display / full name for users without a username |
 | `seats_booked` | INTEGER | DEFAULT 0 | Number of seats booked by this user |
 
 ---

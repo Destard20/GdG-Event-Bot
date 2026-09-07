@@ -1,5 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from core.config import TELEGRAM_BOT_USERNAME
+from utils.templates import format_reservation_subscriber_display
 
 def get_approval_keyboard(event_id):
     keyboard = [
@@ -38,12 +39,10 @@ def get_cancelled_event_keyboard(event_id):
 def get_subscribers_management_keyboard(event_id, reservations):
     keyboard = []
     for res in reservations:
-        uname = res.get('username') or f"ID:{res.get('user_id')}"
-        if not uname.startswith('@') and not uname.startswith('ID:'):
-            uname = f"@{uname}"
+        label = format_reservation_subscriber_display(res, as_html=False)
         seats = res.get('seats_booked', 1)
         res_id = res['id']
-        label = uname if len(uname) <= 12 else uname[:11] + "…"
+        label = label if len(label) <= 12 else label[:11] + "…"
         keyboard.append([
             InlineKeyboardButton(f"➖ {label} ({seats})", callback_data=f"sub_dec_{event_id}_{res_id}"),
             InlineKeyboardButton(f"➕ {label} ({seats})", callback_data=f"sub_inc_{event_id}_{res_id}")

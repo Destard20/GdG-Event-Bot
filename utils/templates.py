@@ -148,6 +148,40 @@ def recap_links_text(events):
     return text
 
 
+def format_reservation_subscriber_display(reservation, as_html=True):
+    """
+    Returns the display string for a subscriber in a reservation.
+    - If a valid Telegram username exists, returns '@username'.
+    - If user has no username:
+      - If as_html=True and user_id exists: returns '<a href="tg://user?id={user_id}">{name}</a>'
+      - If as_html=False or no user_id: returns '{name}' (or 'ID:{user_id}')
+    """
+    uname = (reservation.get('username') or '').strip()
+    fname = (reservation.get('full_name') or '').strip()
+    uid = reservation.get('user_id')
+
+    # If username contains spaces, it was a display name stored previously in the username column
+    if uname and " " in uname and not fname:
+        fname = uname
+        uname = ""
+
+    # Clean username if present
+    clean_uname = uname.lstrip('@') if uname else ""
+
+    if clean_uname:
+        tag = f"@{clean_uname}"
+        return html.escape(tag) if as_html else tag
+    elif fname:
+        if as_html and uid:
+            return f'<a href="tg://user?id={uid}">{html.escape(fname)}</a>'
+        return html.escape(fname) if as_html else fname
+    elif uid:
+        label = f"ID:{uid}"
+        return label
+    else:
+        return "Utente"
+
+
 def format_event_participants_message(event, reservations):
     event_display = format_event_title_link(event)
     booked = int(event.get('booked_seats', 0) or 0)
@@ -173,12 +207,10 @@ def format_event_participants_message(event, reservations):
     else:
         text += "<b>Elenco iscritti:</b>\n"
         for i, s in enumerate(reservations, 1):
-            uname = s.get('username') or f"ID:{s.get('user_id')}"
-            if not uname.startswith('@') and not uname.startswith('ID:'):
-                uname = f"@{uname}"
+            display_name = format_reservation_subscriber_display(s, as_html=True)
             seats = s.get('seats_booked', 1)
             posti_str = f" ({seats} posti)" if seats > 1 else ""
-            text += f"{i}. <b>{html.escape(uname)}</b>{posti_str}\n"
+            text += f"{i}. <b>{display_name}</b>{posti_str}\n"
 
     return text
 
