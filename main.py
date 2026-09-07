@@ -14,7 +14,8 @@ from bot.handlers import (
     process_message, manual_trigger_command, manual_recap_command, 
     handle_discussion_forward, event_edit_command, bot_pause_command, 
     bot_resume_command, bot_status_command, event_sub_add_command,
-    event_sub_remove_command, handle_admin_reply, cache_admin_media_group
+    event_sub_remove_command, handle_admin_reply, cache_admin_media_group,
+    start_command
 )
 from bot.callbacks import handle_approval
 from core.scheduler import start_scheduler
@@ -70,6 +71,7 @@ def main():
     )
     
     # Handlers for admin commands
+    application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("event_process", manual_trigger_command, block=False))
     application.add_handler(CommandHandler("ep", manual_trigger_command, block=False))
     application.add_handler(CommandHandler("recap_generate", manual_recap_command))

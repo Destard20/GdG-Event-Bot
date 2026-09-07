@@ -181,7 +181,8 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if PUBLIC_CHANNEL_ID:
                 try:
                     public_text = format_public_event_message(event)
-                    pub_keyboard = get_event_booking_keyboard(event_id)
+                    bot_username = getattr(context.bot, "username", None)
+                    pub_keyboard = get_event_booking_keyboard(event_id, event=event, bot_username=bot_username)
                     if event.get('image_path'):
                         with open(event['image_path'], 'rb') as f:
                             pub_msg = await context.bot.send_photo(

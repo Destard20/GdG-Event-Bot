@@ -1,4 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from core.config import TELEGRAM_BOT_USERNAME
 
 def get_approval_keyboard(event_id):
     keyboard = [
@@ -74,7 +75,7 @@ def get_wp_publish_keyboard(post_id):
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_event_booking_keyboard(event_id, event=None):
+def get_event_booking_keyboard(event_id, event=None, bot_username=None):
     if event is None:
         from core.db import get_event
         event = get_event(event_id)
@@ -87,15 +88,21 @@ def get_event_booking_keyboard(event_id, event=None):
             is_full = True
             
     if is_full:
-        book_button = InlineKeyboardButton("🚫 Posti esauriti", callback_data=f"full_{event_id}")
+        book_button = InlineKeyboardButton("🚫 Esauriti", callback_data=f"full_{event_id}")
     else:
-        book_button = InlineKeyboardButton("➕ Prenoto posto", callback_data=f"book_{event_id}")
+        book_button = InlineKeyboardButton("➕ Prenota", callback_data=f"book_{event_id}")
 
-    keyboard = [
-        [
-            book_button,
-            InlineKeyboardButton("➖ Tolgo prenotazione", callback_data=f"unbook_{event_id}")
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    unbook_button = InlineKeyboardButton("➖ Annulla", callback_data=f"unbook_{event_id}")
+
+    if bot_username is None:
+        bot_username = TELEGRAM_BOT_USERNAME
+
+    row = [book_button]
+    if bot_username:
+        clean_username = bot_username.lstrip('@')
+        list_button = InlineKeyboardButton("👥 Lista", url=f"https://t.me/{clean_username}?start=subs_{event_id}")
+        row.append(list_button)
+    row.append(unbook_button)
+
+    return InlineKeyboardMarkup([row])
 

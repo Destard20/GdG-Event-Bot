@@ -16,12 +16,14 @@ from bot.handlers import (
     event_sub_remove_command,
     handle_admin_reply,
     handle_discussion_forward,
+    start_command,
 )
 from bot.keyboards import (
     get_approval_keyboard,
     get_approved_event_keyboard,
     get_cancelled_event_keyboard,
     get_subscribers_management_keyboard,
+    get_event_booking_keyboard,
 )
 from bot.service import (
     send_admin_action_notice,
@@ -32,6 +34,7 @@ from bot.service import (
 )
 from utils.templates import (
     format_event_title_link,
+    format_event_participants_message,
     recap_generate_text,
     recap_links_text,
 )
@@ -906,6 +909,147 @@ class TestSubscriberManagement(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fwd_call["chat_id"], -100222222)
         self.assertEqual(fwd_call["reply_to_message_id"], 888)
         self.assertIn("<b>Avventura D&amp;D</b>", fwd_call["text"])
+
+
+class TestDeepLinkAndBookingKeyboard(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "test_deeplink.db")
+        self.patch_db = patch("core.db.DB_PATH", self.db_path)
+        self.patch_db.start()
+        db.init_db()
+
+        self.event_data = {
+            "title": "One-Shot D&D <Special>",
+            "date": "Venerdì 20-09-2026",
+            "system": "D&D 5e",
+            "seats": 4,
+            "max_seats": 4,
+            "booked_seats": 0,
+            "description": "Una fantastica avventura",
+        }
+        self.event_id = db.insert_event(self.event_data, None, "raw text")
+        db.update_event_status(self.event_id, "approved")
+
+    def tearDown(self):
+        self.patch_db.stop()
+        self.temp_dir.cleanup()
+
+    def test_booking_keyboard_without_bot_username(self):
+        with patch("bot.keyboards.TELEGRAM_BOT_USERNAME", None):
+            kb = get_event_booking_keyboard(self.event_id)
+            self.assertEqual(len(kb.inline_keyboard), 1)
+            row = kb.inline_keyboard[0]
+            self.assertEqual(len(row), 2)
+            self.assertEqual(row[0].text, "➕ Prenota")
+            self.assertEqual(row[0].callback_data, f"book_{self.event_id}")
+            self.assertEqual(row[1].text, "➖ Annulla")
+            self.assertEqual(row[1].callback_data, f"unbook_{self.event_id}")
+
+    def test_booking_keyboard_with_bot_username(self):
+        kb = get_event_booking_keyboard(self.event_id, bot_username="GdG_Event_bot")
+        self.assertEqual(len(kb.inline_keyboard), 1)
+        row = kb.inline_keyboard[0]
+        self.assertEqual(len(row), 3)
+        self.assertEqual(row[0].text, "➕ Prenota")
+        self.assertEqual(row[0].callback_data, f"book_{self.event_id}")
+        self.assertEqual(row[1].text, "👥 Lista")
+        self.assertEqual(row[1].url, f"https://t.me/GdG_Event_bot?start=subs_{self.event_id}")
+        self.assertEqual(row[2].text, "➖ Annulla")
+        self.assertEqual(row[2].callback_data, f"unbook_{self.event_id}")
+
+    def test_booking_keyboard_with_at_prefix_bot_username(self):
+        kb = get_event_booking_keyboard(self.event_id, bot_username="@GdG_Event_bot")
+        row = kb.inline_keyboard[0]
+        self.assertEqual(row[1].url, f"https://t.me/GdG_Event_bot?start=subs_{self.event_id}")
+
+    def test_booking_keyboard_when_full(self):
+        event = db.get_event(self.event_id)
+        event["booked_seats"] = 4
+        event["max_seats"] = 4
+
+        kb = get_event_booking_keyboard(self.event_id, event=event, bot_username="GdG_Event_bot")
+        row = kb.inline_keyboard[0]
+        self.assertEqual(len(row), 3)
+        self.assertEqual(row[0].text, "🚫 Esauriti")
+        self.assertEqual(row[0].callback_data, f"full_{self.event_id}")
+        self.assertEqual(row[1].text, "👥 Lista")
+        self.assertEqual(row[2].text, "➖ Annulla")
+
+    def test_format_event_participants_message_empty(self):
+        event = db.get_event(self.event_id)
+        msg = format_event_participants_message(event, [])
+        self.assertIn("One-Shot D&amp;D &lt;Special&gt;", msg)
+        self.assertIn("Posti occupati: <b>0/4</b>", msg)
+        self.assertIn("Nessun partecipante iscritto al momento.", msg)
+
+    def test_format_event_participants_message_with_reservations(self):
+        event = db.get_event(self.event_id)
+        reservations = [
+            {"username": "mario", "user_id": 101, "seats_booked": 1},
+            {"username": "@luigi<boss>", "user_id": 102, "seats_booked": 2},
+            {"username": "", "user_id": 103, "seats_booked": 1},
+        ]
+        msg = format_event_participants_message(event, reservations)
+        self.assertIn("<b>@mario</b>", msg)
+        self.assertIn("<b>@luigi&lt;boss&gt;</b> (2 posti)", msg)
+        self.assertIn("<b>ID:103</b>", msg)
+
+    def test_format_event_participants_message_cancelled(self):
+        event = db.get_event(self.event_id)
+        event["status"] = "cancelled"
+        msg = format_event_participants_message(event, [])
+        self.assertIn("❌ <i>[ANNULLATO]</i>", msg)
+
+    async def test_start_command_deep_link(self):
+        db.book_seat(self.event_id, 1001, "player_one")
+        update = MagicMock()
+        update.message = AsyncMock()
+        context = MagicMock()
+        context.args = [f"subs_{self.event_id}"]
+
+        await start_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        kwargs = update.message.reply_text.call_args[1]
+        self.assertIn("Partecipanti all'evento", text)
+        self.assertIn("One-Shot D&amp;D &lt;Special&gt;", text)
+        self.assertIn("@player_one", text)
+        self.assertEqual(kwargs.get("parse_mode"), "HTML")
+        self.assertTrue(kwargs.get("disable_web_page_preview"))
+
+    async def test_start_command_invalid_id(self):
+        update = MagicMock()
+        update.message = AsyncMock()
+        context = MagicMock()
+        context.args = ["subs_notanumber"]
+
+        await start_command(update, context)
+
+        update.message.reply_text.assert_called_once_with("❌ ID evento non valido.")
+
+    async def test_start_command_nonexistent_event(self):
+        update = MagicMock()
+        update.message = AsyncMock()
+        context = MagicMock()
+        context.args = ["subs_999999"]
+
+        await start_command(update, context)
+
+        update.message.reply_text.assert_called_once_with("❌ Evento non trovato o già rimosso.")
+
+    async def test_start_command_without_args(self):
+        update = MagicMock()
+        update.message = AsyncMock()
+        context = MagicMock()
+        context.args = []
+
+        await start_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        self.assertIn("Gilda del Grifone", text)
 
 
 

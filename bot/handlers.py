@@ -50,6 +50,42 @@ async def bot_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     status = "🔴 IN PAUSA (monitoraggio canale eventi disattivato)" if is_bot_paused else "🟢 ATTIVO (monitoraggio canale eventi funzionante)"
     await update.message.reply_text(f"Stato del bot: {status}")
 
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
+    args = context.args
+    if args and len(args) > 0:
+        arg = args[0]
+        if arg.startswith("subs_"):
+            try:
+                event_id = int(arg.split("_")[1])
+            except (IndexError, ValueError):
+                await update.message.reply_text("❌ ID evento non valido.")
+                return
+
+            from core.db import get_event, get_reservations_for_event
+            from utils.templates import format_event_participants_message
+
+            event = get_event(event_id)
+            if not event:
+                await update.message.reply_text("❌ Evento non trovato o già rimosso.")
+                return
+
+            reservations = get_reservations_for_event(event_id)
+            text = format_event_participants_message(event, reservations)
+            await update.message.reply_text(
+                text,
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
+            return
+
+    await update.message.reply_text(
+        "👋 Ciao! Sono il bot per la gestione degli eventi della Gilda del Grifone.\n\n"
+        "Puoi visualizzare le proposte e gestire le prenotazioni direttamente dai pulsanti interattivi sul canale e nel gruppo di discussione!"
+    )
+
 media_groups = {}
 admin_media_groups = {}
 
@@ -570,10 +606,11 @@ async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAUL
         logger.warning(f"No event found in DB for forwarded message_id={forward_msg_id}")
         return
         
+    bot_username = getattr(context.bot, "username", None)
     # Check if this event already has a discussion reply message
     if event.get('discussion_message_id'):
         logger.info(f"Event {event['id']} already has discussion_message_id={event['discussion_message_id']}")
-        pub_keyboard = get_event_booking_keyboard(event['id'], event=event)
+        pub_keyboard = get_event_booking_keyboard(event['id'], event=event, bot_username=bot_username)
         try:
             await context.bot.edit_message_reply_markup(
                 chat_id=message.chat_id,
@@ -586,7 +623,7 @@ async def handle_discussion_forward(update: Update, context: ContextTypes.DEFAUL
         return
 
     # Send a reply with the booking keyboard
-    pub_keyboard = get_event_booking_keyboard(event['id'], event=event)
+    pub_keyboard = get_event_booking_keyboard(event['id'], event=event, bot_username=bot_username)
     
     try:
         reply_msg = await context.bot.send_message(

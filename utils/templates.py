@@ -146,3 +146,39 @@ def recap_links_text(events):
         sys_str = f" ({html.escape(sys_val)})" if sys_val else ""
         text += f"- {title_display}{sys_str}\n"
     return text
+
+
+def format_event_participants_message(event, reservations):
+    event_display = format_event_title_link(event)
+    booked = int(event.get('booked_seats', 0) or 0)
+    max_s = event.get('max_seats')
+    max_str = str(max_s) if max_s is not None else "Nessun limite"
+    date = event.get('date') or ""
+    status = event.get('status', 'approved')
+
+    status_suffix = ""
+    if status == "cancelled":
+        status_suffix = " ❌ <i>[ANNULLATO]</i>"
+
+    text = (
+        f"📋 <b>Partecipanti all'evento</b>{status_suffix}\n"
+        f"📌 {event_display}\n"
+    )
+    if date:
+        text += f"📅 <i>{html.escape(date)}</i>\n"
+    text += f"🪑 Posti occupati: <b>{booked}/{max_str}</b>\n\n"
+
+    if not reservations:
+        text += "<i>Nessun partecipante iscritto al momento.</i>\n"
+    else:
+        text += "<b>Elenco iscritti:</b>\n"
+        for i, s in enumerate(reservations, 1):
+            uname = s.get('username') or f"ID:{s.get('user_id')}"
+            if not uname.startswith('@') and not uname.startswith('ID:'):
+                uname = f"@{uname}"
+            seats = s.get('seats_booked', 1)
+            posti_str = f" ({seats} posti)" if seats > 1 else ""
+            text += f"{i}. <b>{html.escape(uname)}</b>{posti_str}\n"
+
+    return text
+

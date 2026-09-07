@@ -23,7 +23,8 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
     public_text = format_public_event_message(event)
     pub_keyboard = None
     if event.get('status') == 'approved':
-        pub_keyboard = get_event_booking_keyboard(event_id, event=event)
+        bot_username = getattr(getattr(context, 'bot', None), "username", None)
+        pub_keyboard = get_event_booking_keyboard(event_id, event=event, bot_username=bot_username)
 
     # 1. Update message in PUBLIC_CHANNEL_ID
     if PUBLIC_CHANNEL_ID and event.get('telegram_message_id'):

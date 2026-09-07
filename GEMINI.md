@@ -98,15 +98,18 @@ The system automates the ingestion, standardization, social sharing, and booking
   1. Generates 1080x1920 Instagram Story image using `utils/image_utils.create_story_image()` and saves it in `[DATA_DIR]/YYYY/MM/DD/`.
   2. Sends the generated story image to `ADMIN_CHAT_ID` for review *(Meta Graph API publishing is currently commented out for testing; see section 6)*.
   3. Formats the official standardized public channel post using `utils/templates.format_public_event_post()`.
-  4. Posts the formatted message with the original image to `PUBLIC_CHANNEL_ID`, attaching the `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` inline keyboard.
+  4. Posts the formatted message with the original image to `PUBLIC_CHANNEL_ID`, attaching the `[➕ Prenota] [👥 Lista] [➖ Annulla]` inline keyboard.
   5. Updates DB with the public `telegram_message_id` and `message_link`.
   6. Leaves persistent `[❌ Annulla Evento]` and `[👥 Gestisci Iscritti]` buttons under the admin review message.
 
-### 2.4. Public Booking & Same-Day Conflict Warnings
-- **Seat Booking (`[➕ Prenoto posto]` / `book_<event_id>`):**
+### 2.4. Public Booking, Deep-Link Participant List & Same-Day Conflict Warnings
+- **Seat Booking (`[➕ Prenota]` / `book_<event_id>` or `[🚫 Esauriti]` / `full_<event_id>`):**
   - Increments seat reservation count for the user in `reservations` table.
   - Updates remaining seat counter on the public channel post and discussion message.
   - Posts a booking confirmation notification to `DISCUSSION_GROUP_ID` (e.g. `✅ @user ha prenotato 1 posto per: <b>Titolo</b>`, where the bold title is hyperlinked to the event post if available).
+- **Deep-Link Participant List (`[👥 Lista]` -> `t.me/{bot_username}?start=subs_{event_id}`):**
+  - Opens a 1-on-1 private chat with the bot and executes `/start subs_{event_id}`.
+  - Bot responds directly in DM with a formatted overview of current subscribers and seat counts, completely avoiding chat spam in public channels and discussion groups.
 - **Same-Day Conflict Warnings (`get_user_conflicting_events` & `send_conflict_warning`):**
   - When a user reserves a seat, the system checks whether the user already holds active reservations (`seats_booked > 0`) for any other valid events (`status NOT IN ('cancelled', 'discarded')`) scheduled on that exact same day.
   - Handles date comparison across date formats (`DD-MM-YYYY` vs `YYYY-MM-DD`).
@@ -114,7 +117,7 @@ The system automates the ingestion, standardization, social sharing, and booking
     - Informs them they are already registered for other event(s) on that day.
     - Lists all conflicting events with their bold titles (hyperlinked to the respective posts if available) and systems.
     - Advises the user to release their seat from whichever event they decide not to attend.
-- **Seat Release (`[➖ Tolgo prenotazione]` / `unbook_<event_id>`):**
+- **Seat Release (`[➖ Annulla]` / `unbook_<event_id>`):**
   - Decrements seat reservation count or deletes reservation record if 0 seats remain.
   - Updates remaining seats on public channel post and discussion message.
   - Posts a release notification to `DISCUSSION_GROUP_ID` (e.g. `❌ @user ha liberato 1 posto per: <b>Titolo</b>`, where the bold title is hyperlinked to the event post if available).

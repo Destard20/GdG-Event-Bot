@@ -26,7 +26,7 @@ This application monitors a Telegram channel, extracts event information using *
 ## Features
 
 - **Automated Telegram Channel Interception:** Listens to the public announcement channel. When an admin posts a message, the bot parses the content with Gemini AI. If confirmed as a bookable event, the bot deletes the raw post and routes it to an admin review chat; non-event announcements, reminders, and notices are left untouched in the channel.
-- **Interactive Live Booking System & Same-Day Conflict Warnings:** Published events feature inline `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` buttons. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically. If a user reserves a seat on multiple valid events on the same day, the bot automatically warns them in chat with links to all conflicting events so they can choose which to keep.
+- **Interactive Live Booking System & Same-Day Conflict Warnings:** Published events feature inline `[➕ Prenota]`, `[👥 Lista]`, and `[➖ Annulla]` buttons across both the announcement channel and discussion group. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically. The `[👥 Lista]` button deep-links to a private DM with the bot (`/start subs_{id}`), providing a full roster of participants without generating chat spam. If a user reserves a seat on multiple valid events on the same day, the bot automatically warns them in chat with links to all conflicting events so they can choose which to keep.
 - **Event Cancellation:** Admins can cancel any event at any time using a persistent `[Cancel]` button. Cancelled events update live in the channel and are flagged as `[ANNULLATO]` with zero seats in recaps and graphics.
 - **Daily Recaps & Multi-Image Collages:** Automatically runs at 18:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/recap_generate`. Stitches event artwork into clean horizontal collages without cropping borders.
 - **Instagram Story Generator:** Programmatically builds 1080x1920 Instagram Story cards for individual events and daily recaps using Pillow (handling top banner artwork, dynamic text wrapping, seat counters, and association location footers).
@@ -122,15 +122,16 @@ python3 main.py
 - **Channel Ingestion:** Admins post an announcement text with a picture to the public channel (`PUBLIC_CHANNEL_ID`).
 - **Deferred Auto-Interception:** The bot parses the content via Gemini AI first. If confirmed as an event, it deletes the raw post from the public channel and routes it to admin review; if it is not an event, it is preserved in the channel.
 - **Admin Review:** The parsed event is forwarded to `ADMIN_CHAT_ID` with buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
-- **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenoto posto]` and `[➖ Tolgo prenotazione]` to the public channel and generates the Instagram Story graphic locally.
+- **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenota] [👥 Lista] [➖ Annulla]` to the public channel and generates the Instagram Story graphic locally.
 - **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process` (or shortcut `/ep`).
 
 ### 2. Live Seat Booking & Same-Day Conflict Warnings
-- Users click `[➕ Prenoto posto]` on a channel post to reserve a seat.
+- Users click `[➕ Prenota]` on a channel post or discussion group reply to reserve a seat (or see `[🚫 Esauriti]` if full).
 - Clicks increment personal seat reservation count in SQLite.
 - The post message dynamically updates (`Posti: X/Y` or `0/Y Completo`), and the bot sends a reply to the post announcing the reservation.
+- Users click `[👥 Lista]` to open a private DM with the bot and view the full list of participants without spamming the group.
 - **Same-Day Conflict Warning:** If a user reserves a seat on an event while already subscribed to another valid event (not cancelled or unsubscribed) scheduled for the same day, the bot processes the reservation normally and immediately posts a warning in the discussion chat. The warning tags the user, lists the conflicting event(s) with titles and direct message links, and reminds the user to release their seat from whichever event they decide not to attend.
-- Users click `[➖ Tolgo prenotazione]` to release reserved seats.
+- Users click `[➖ Annulla]` to release reserved seats.
 
 ### 3. Daily Recap Flow
 - Runs automatically at **18:00** on Mondays, Wednesdays, Fridays, Saturdays, and Sundays (silent if no events are scheduled).

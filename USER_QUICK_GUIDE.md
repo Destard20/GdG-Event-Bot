@@ -64,6 +64,7 @@ Se hai bisogno di forzare l'aggiunta o la rimozione di un utente (ad esempio se 
 
 ## 👤 Per gli Utenti: Prenotazione Posti
 
-La prenotazione dei tavoli per i giocatori è semplicissima e avviene nel canale pubblico della Gilda:
-- **Per Prenotarsi:** Clicca sul pulsante inline **[➕ Prenoto posto]**. Il contatore dei posti si aggiornerà in tempo reale (es. da 3/5 a 4/5) e il bot ti confermerà la prenotazione taggandoti nei commenti.
-- **Per Disdire:** Clicca sul pulsante **[➖ Tolgo prenotazione]** per liberare il tuo posto e rimetterlo a disposizione di altri.
+La prenotazione dei tavoli per i giocatori è semplicissima e avviene nel canale pubblico della Gilda o nel gruppo discussione:
+- **Per Prenotarsi:** Clicca sul pulsante inline **[➕ Prenota]** (oppure **[🚫 Esauriti]** se non ci sono più posti disponibili). Il contatore dei posti si aggiornerà in tempo reale e il bot confermerà la prenotazione taggandoti nei commenti.
+- **Per Vedere gli Iscritti:** Clicca sul pulsante **[👥 Lista]**. Il bot ti aprirà una chat privata mostrando l'elenco completo dei partecipanti senza intasare la chat di gruppo.
+- **Per Disdire:** Clicca sul pulsante **[➖ Annulla]** per liberare il tuo posto e rimetterlo a disposizione di altri.
