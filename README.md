@@ -219,6 +219,27 @@ All maintenance utilities are located in the `scripts/` directory:
   python3 scripts/unzip_images.py data/2026/09 --delete-zip
   ```
 
+- **Manually Generate Instagram Story:**
+  ```bash
+  # Generate story image for event with ID 1:
+  python3 scripts/generate_story.py 1
+
+  # List all available events in the database:
+  python3 scripts/generate_story.py --list
+
+  # Generate story image and send it to the Telegram Admin Chat:
+  python3 scripts/generate_story.py 1 --send-telegram
+
+  # Generate story image with a custom output directory:
+  python3 scripts/generate_story.py 1 --output-dir /path/to/custom_dir
+
+  # Generate story image overriding the event photo:
+  python3 scripts/generate_story.py 1 --image /path/to/image.jpg
+
+  # Generate story image and publish directly to Instagram (via WordPress media upload):
+  python3 scripts/generate_story.py 1 --publish-ig
+  ```
+
 - **Reset Database & Clean Images:**
   ```bash
   python3 scripts/clean_db.py

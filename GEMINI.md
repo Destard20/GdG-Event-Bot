@@ -220,6 +220,7 @@ GdG-Event-Bot/
 │   ├── image_utils.py    # Pillow image manipulation: collages, story generation, date folder resolution
 │   └── templates.py      # Standardized Telegram message templates (stories, channel posts, recaps)
 ├── scripts/              # Utility and maintenance scripts
+│   ├── generate_story.py # Utility script to manually generate Instagram Stories by event ID
 │   ├── clean_db.py       # Utility script to wipe database tables and clean image folders
 │   ├── unzip_images.py   # Utility script to extract archived images by directory or date range
 │   └── test_ig.py        # Diagnostic script to test Meta Graph API tokens
