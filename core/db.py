@@ -43,7 +43,8 @@ def init_db():
                     event_id INTEGER,
                     user_id INTEGER,
                     username TEXT,
-                    seats_booked INTEGER DEFAULT 0
+                    seats_booked INTEGER DEFAULT 0,
+                    full_name TEXT
                 )
             ''')
             # Check for column migrations on existing databases
@@ -55,6 +56,10 @@ def init_db():
                 cursor.execute("ALTER TABLE events ADD COLUMN discussion_message_id INTEGER")
             if 'discussion_chat_id' not in columns:
                 cursor.execute("ALTER TABLE events ADD COLUMN discussion_chat_id TEXT")
+            cursor.execute("PRAGMA table_info(reservations)")
+            res_columns = [col[1] for col in cursor.fetchall()]
+            if 'full_name' not in res_columns:
+                cursor.execute("ALTER TABLE reservations ADD COLUMN full_name TEXT")
             conn.commit()
     except Exception as e:
         logger.error(f"Error initializing DB: {e}")
@@ -193,7 +198,7 @@ def get_event_by_telegram_message_id(message_id):
         logger.error(f"Error getting event by telegram message id: {e}")
         return None
 
-def book_seat(event_id, user_id, username):
+def book_seat(event_id, user_id, username=None, full_name=None):
     try:
         with get_connection() as conn:
             conn.row_factory = sqlite3.Row
@@ -211,23 +216,32 @@ def book_seat(event_id, user_id, username):
             if ev['max_seats'] is not None and booked_count >= int(ev['max_seats']):
                 return False, "Nessun posto disponibile."
                 
-            clean_username = (username or '').strip().lstrip('@')
+            clean_username = (username.strip().lstrip('@') if isinstance(username, str) and username.strip() else None)
+            clean_fullname = (full_name.strip() if isinstance(full_name, str) and full_name.strip() else None)
+
+            # If username contains spaces, it's actually full_name
+            if clean_username and " " in clean_username and not clean_fullname:
+                clean_fullname = clean_username
+                clean_username = None
+
             # Check if reservation exists (by user_id or matching username)
             cursor.execute(
-                'SELECT id, seats_booked FROM reservations WHERE event_id = ? AND (user_id = ? OR (user_id IS NULL AND LOWER(username) = LOWER(?)))',
+                'SELECT id, seats_booked, username, full_name FROM reservations WHERE event_id = ? AND (user_id = ? OR (user_id IS NULL AND username IS NOT NULL AND LOWER(username) = LOWER(?)))',
                 (event_id, user_id, clean_username)
             )
             res = cursor.fetchone()
             
             if res:
+                new_uname = clean_username if clean_username is not None else res['username']
+                new_fname = clean_fullname if clean_fullname is not None else res['full_name']
                 cursor.execute(
-                    'UPDATE reservations SET seats_booked = seats_booked + 1, username = ?, user_id = ? WHERE id = ?',
-                    (clean_username, user_id, res['id'])
+                    'UPDATE reservations SET seats_booked = seats_booked + 1, username = ?, full_name = ?, user_id = ? WHERE id = ?',
+                    (new_uname, new_fname, user_id, res['id'])
                 )
             else:
                 cursor.execute(
-                    'INSERT INTO reservations (event_id, user_id, username, seats_booked) VALUES (?, ?, ?, 1)',
-                    (event_id, user_id, clean_username)
+                    'INSERT INTO reservations (event_id, user_id, username, full_name, seats_booked) VALUES (?, ?, ?, ?, 1)',
+                    (event_id, user_id, clean_username, clean_fullname)
                 )
                 
             new_booked = booked_count + 1
@@ -258,8 +272,8 @@ def unbook_seat(event_id, user_id, username=None):
                 
             clean_username = (username or '').strip().lstrip('@')
             cursor.execute(
-                'SELECT id, seats_booked FROM reservations WHERE event_id = ? AND (user_id = ? OR (LOWER(username) = LOWER(?) AND ? != ""))',
-                (event_id, user_id, clean_username, clean_username)
+                'SELECT id, seats_booked FROM reservations WHERE event_id = ? AND (user_id = ? OR (LOWER(username) = LOWER(?) AND ? != "") OR (full_name IS NOT NULL AND LOWER(full_name) = LOWER(?) AND ? != ""))',
+                (event_id, user_id, clean_username, clean_username, clean_username, clean_username)
             )
             res = cursor.fetchone()
             
@@ -317,8 +331,8 @@ def get_reservation_by_user(event_id, username=None, user_id=None):
             cursor = conn.cursor()
             if user_id is not None and clean_username:
                 cursor.execute(
-                    'SELECT * FROM reservations WHERE event_id = ? AND (user_id = ? OR (username IS NOT NULL AND LOWER(username) = LOWER(?)))',
-                    (event_id, user_id, clean_username)
+                    'SELECT * FROM reservations WHERE event_id = ? AND (user_id = ? OR (username IS NOT NULL AND LOWER(username) = LOWER(?)) OR (full_name IS NOT NULL AND LOWER(full_name) = LOWER(?)))',
+                    (event_id, user_id, clean_username, clean_username)
                 )
             elif user_id is not None:
                 cursor.execute(
@@ -327,8 +341,8 @@ def get_reservation_by_user(event_id, username=None, user_id=None):
                 )
             elif clean_username:
                 cursor.execute(
-                    'SELECT * FROM reservations WHERE event_id = ? AND username IS NOT NULL AND LOWER(username) = LOWER(?)',
-                    (event_id, clean_username)
+                    'SELECT * FROM reservations WHERE event_id = ? AND ((username IS NOT NULL AND LOWER(username) = LOWER(?)) OR (full_name IS NOT NULL AND LOWER(full_name) = LOWER(?)))',
+                    (event_id, clean_username, clean_username)
                 )
             else:
                 return None
@@ -512,13 +526,18 @@ def admin_remove_seat(event_id, reservation_id):
         logger.error(f"Error in admin_remove_seat: {e}")
         return False, "Errore durante la rimozione del posto."
 
-def admin_add_subscriber(event_id, username, seats=1, user_id=None):
+def admin_add_subscriber(event_id, username, seats=1, user_id=None, full_name=None):
     try:
         seats = int(seats)
         if seats <= 0:
             return False, "Il numero di posti deve essere almeno 1."
-        clean_username = (username or '').strip().lstrip('@')
-        if not clean_username and user_id is None:
+        clean_username = (username.strip().lstrip('@') if isinstance(username, str) and username.strip() else None)
+        clean_fullname = (full_name.strip() if isinstance(full_name, str) and full_name.strip() else None)
+        if clean_username and " " in clean_username and not clean_fullname:
+            clean_fullname = clean_username
+            clean_username = None
+
+        if not clean_username and not clean_fullname and user_id is None:
             return False, "Specificare un username o un user_id valido."
             
         with get_connection() as conn:
@@ -539,19 +558,21 @@ def admin_add_subscriber(event_id, username, seats=1, user_id=None):
                     return False, f"Capienza superata! Posti disponibili: {avail}/{max_s}."
                     
             cursor.execute(
-                'SELECT id, seats_booked FROM reservations WHERE event_id = ? AND (user_id = ? OR (LOWER(username) = LOWER(?) AND ? != ""))',
-                (event_id, user_id, clean_username, clean_username)
+                'SELECT id, seats_booked, username, full_name FROM reservations WHERE event_id = ? AND (user_id = ? OR (username IS NOT NULL AND LOWER(username) = LOWER(?)) OR (full_name IS NOT NULL AND LOWER(full_name) = LOWER(?)))',
+                (event_id, user_id, clean_username, clean_fullname or clean_username)
             )
             res = cursor.fetchone()
             if res:
+                new_uname = clean_username if clean_username is not None else res['username']
+                new_fname = clean_fullname if clean_fullname is not None else res['full_name']
                 cursor.execute(
-                    'UPDATE reservations SET seats_booked = seats_booked + ?, username = ? WHERE id = ?',
-                    (seats, clean_username or res['username'], res['id'])
+                    'UPDATE reservations SET seats_booked = seats_booked + ?, username = ?, full_name = ? WHERE id = ?',
+                    (seats, new_uname, new_fname, res['id'])
                 )
             else:
                 cursor.execute(
-                    'INSERT INTO reservations (event_id, user_id, username, seats_booked) VALUES (?, ?, ?, ?)',
-                    (event_id, user_id, clean_username, seats)
+                    'INSERT INTO reservations (event_id, user_id, username, full_name, seats_booked) VALUES (?, ?, ?, ?, ?)',
+                    (event_id, user_id, clean_username, clean_fullname, seats)
                 )
                 
             new_booked = booked_count + seats
@@ -562,7 +583,12 @@ def admin_add_subscriber(event_id, username, seats=1, user_id=None):
             else:
                 cursor.execute('UPDATE events SET booked_seats = ? WHERE id = ?', (new_booked, event_id))
             conn.commit()
-            display_name = f"@{clean_username}" if clean_username else f"ID:{user_id}"
+            if clean_username:
+                display_name = f"@{clean_username}"
+            elif clean_fullname:
+                display_name = clean_fullname
+            else:
+                display_name = f"ID:{user_id}"
             return True, f"Iscritto {display_name} registrato con successo ({seats} posto/i)."
     except Exception as e:
         logger.error(f"Error in admin_add_subscriber: {e}")
@@ -583,8 +609,8 @@ def admin_remove_subscriber(event_id, username, seats=None):
                 return False, "Evento non trovato."
                 
             cursor.execute(
-                'SELECT id, seats_booked FROM reservations WHERE event_id = ? AND LOWER(username) = LOWER(?)',
-                (event_id, clean_username)
+                'SELECT id, seats_booked, username, full_name FROM reservations WHERE event_id = ? AND ((username IS NOT NULL AND LOWER(username) = LOWER(?)) OR (full_name IS NOT NULL AND LOWER(full_name) = LOWER(?)))',
+                (event_id, clean_username, clean_username)
             )
             res = cursor.fetchone()
             if not res:
@@ -607,7 +633,13 @@ def admin_remove_subscriber(event_id, username, seats=None):
             else:
                 cursor.execute('UPDATE events SET booked_seats = ? WHERE id = ?', (new_booked, event_id))
             conn.commit()
-            return True, f"Rimossi {seats_to_remove} posto/i per @{clean_username}."
+            if res['username']:
+                disp = f"@{res['username']}"
+            elif res['full_name']:
+                disp = res['full_name']
+            else:
+                disp = f"@{clean_username}"
+            return True, f"Rimossi {seats_to_remove} posto/i per {disp}."
     except Exception as e:
         logger.error(f"Error in admin_remove_subscriber: {e}")
         return False, "Errore durante la rimozione dell'iscritto."

@@ -17,7 +17,10 @@ from core.db import (
 )
 from utils.image_utils import delete_local_image
 from core.config import PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
-from utils.templates import format_public_event_message
+from utils.templates import (
+    format_public_event_message,
+    format_reservation_subscriber_display,
+)
 from bot.keyboards import (
     get_event_booking_keyboard,
     get_approved_event_keyboard,
@@ -46,11 +49,22 @@ def format_subscribers_tags(reservations):
     seen = set()
     for res in reservations:
         uname = (res.get('username') or '').strip()
+        fname = (res.get('full_name') or '').strip()
         uid = res.get('user_id')
-        if uname:
-            tag = uname if uname.startswith('@') else f"@{uname}"
+
+        if uname and " " in uname and not fname:
+            fname = uname
+            uname = ""
+
+        clean_uname = uname.lstrip('@') if uname else ""
+        if clean_uname:
+            tag = f"@{clean_uname}"
+        elif uid and fname:
+            tag = f'<a href="tg://user?id={uid}">{html.escape(fname)}</a>'
         elif uid:
             tag = f'<a href="tg://user?id={uid}">Utente</a>'
+        elif fname:
+            tag = html.escape(fname)
         else:
             continue
             
@@ -138,12 +152,10 @@ def format_subscribers_management_view(event, reservations):
     else:
         text += "<b>Iscritti:</b>\n"
         for i, s in enumerate(reservations, 1):
-            uname = s.get('username') or f"ID:{s.get('user_id')}"
-            if not uname.startswith('@') and not uname.startswith('ID:'):
-                uname = f"@{uname}"
+            display_name = format_reservation_subscriber_display(s, as_html=True)
             seats = s.get('seats_booked', 1)
             posti_str = "posto" if seats == 1 else "posti"
-            text += f"{i}. <b>{html.escape(uname)}</b> — {seats} {posti_str}\n"
+            text += f"{i}. <b>{display_name}</b> — {seats} {posti_str}\n"
             
     text += (
         f"\n<i>Modifica con i tasti sotto oppure invia:</i>\n"
@@ -486,6 +498,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     context=context,
                     event=event,
                     target_username=res.get('username'),
+                    target_full_name=res.get('full_name'),
                     target_user_id=res.get('user_id'),
                     action="add",
                     seats=1,
@@ -516,6 +529,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     context=context,
                     event=event,
                     target_username=res.get('username'),
+                    target_full_name=res.get('full_name'),
                     target_user_id=res.get('user_id'),
                     action="remove",
                     seats=1,

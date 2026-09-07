@@ -105,18 +105,39 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
             if "not modified" not in str(e).lower():
                 logger.error(f"Error updating discussion reply markup for event {event_id}: {e}")
 
+def get_user_display_name_and_username(user):
+    username = getattr(user, 'username', None)
+    clean_username = username.strip().lstrip('@') if isinstance(username, str) and username.strip() else None
+
+    full_name = getattr(user, 'full_name', None)
+    if isinstance(full_name, str) and full_name.strip():
+        clean_fullname = full_name.strip()
+    else:
+        first_name = getattr(user, 'first_name', None)
+        if isinstance(first_name, str) and first_name.strip():
+            last_name = getattr(user, 'last_name', None)
+            if isinstance(last_name, str) and last_name.strip():
+                clean_fullname = f"{first_name.strip()} {last_name.strip()}"
+            else:
+                clean_fullname = first_name.strip()
+        else:
+            clean_fullname = None
+
+    return clean_username, clean_fullname
+
 def format_user_mention(user):
-    clean_username = (getattr(user, 'username', None) or '').strip().lstrip('@')
+    clean_username, full_name = get_user_display_name_and_username(user)
     if clean_username:
         return f"@{clean_username}"
-    elif getattr(user, 'first_name', None):
-        name = html.escape(user.first_name)
+    if full_name:
+        name = html.escape(full_name)
         user_id = getattr(user, 'id', None)
-        if user_id:
+        if isinstance(user_id, (int, str)):
             return f'<a href="tg://user?id={user_id}">{name}</a>'
         return name
-    elif getattr(user, 'id', None):
-        return f'<a href="tg://user?id={user.id}">Utente</a>'
+    user_id = getattr(user, 'id', None)
+    if isinstance(user_id, (int, str)):
+        return f'<a href="tg://user?id={user_id}">Utente</a>'
     return "Utente"
 
 def format_conflict_warning_message(user, conflicting_events):
@@ -179,8 +200,8 @@ async def send_conflict_warning(
         logger.error(f"Error sending conflict warning message: {e}")
 
 async def handle_seat_booking(event_id, user, query, context):
-    username = user.username or user.first_name
-    success, msg = book_seat(event_id, user.id, username)
+    clean_username, clean_fullname = get_user_display_name_and_username(user)
+    success, msg = book_seat(event_id, user.id, username=clean_username, full_name=clean_fullname)
     try:
         await query.answer(msg, show_alert=not success)
     except Exception as e:
@@ -251,7 +272,7 @@ async def handle_seat_booking(event_id, user, query, context):
                 logger.error(f"Error checking or sending conflict warning: {e}")
 
 async def handle_seat_unbooking(event_id, user, query, context):
-    username = user.username or user.first_name
+    username = getattr(user, 'username', None)
     success, msg = unbook_seat(event_id, user.id, username=username)
     try:
         await query.answer(msg, show_alert=not success)
@@ -311,7 +332,8 @@ async def send_admin_action_notice(
     target_user_id=None,
     action="add",
     seats=1,
-    admin_user=None
+    admin_user=None,
+    target_full_name=None
 ):
     """
     Sends a notification to DISCUSSION_GROUP_ID whenever an event admin adds or removes
@@ -342,10 +364,19 @@ async def send_admin_action_notice(
 
     # Format target user tag
     clean_target = (target_username or '').strip().lstrip('@')
+    fname = (target_full_name or '').strip()
+    if clean_target and " " in clean_target and not fname:
+        fname = clean_target
+        clean_target = ""
+
     if clean_target:
         user_tag = f"@{clean_target}"
+    elif target_user_id and fname:
+        user_tag = f'<a href="tg://user?id={target_user_id}">{html.escape(fname)}</a>'
     elif target_user_id:
         user_tag = f'<a href="tg://user?id={target_user_id}">Utente</a>'
+    elif fname:
+        user_tag = html.escape(fname)
     else:
         user_tag = "Utente"
 

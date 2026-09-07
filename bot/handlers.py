@@ -1105,6 +1105,7 @@ async def event_sub_remove_command(update: Update, context: ContextTypes.DEFAULT
             action="remove",
             seats=seats_to_remove,
             admin_user=update.effective_user,
+            target_full_name=res.get('full_name') if res else None,
         )
         await update.message.reply_text(f"✅ {msg}")
     else:
