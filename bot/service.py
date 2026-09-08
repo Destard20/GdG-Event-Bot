@@ -1,13 +1,30 @@
 import html
 import os
+import asyncio
 import logging
 from telegram import InputMediaPhoto
+from telegram.error import RetryAfter
 from core.db import get_event, update_discussion_message_info, book_seat, unbook_seat, get_user_conflicting_events
 from core.config import PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
 from utils.templates import format_public_event_message, format_event_title_link
 from bot.keyboards import get_event_booking_keyboard
 
 logger = logging.getLogger(__name__)
+
+async def _execute_with_retry(coro_fn, max_retries=2):
+    """
+    Executes a coroutine factory `coro_fn()`, retrying if Telegram rate-limiting (RetryAfter) occurs.
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_fn()
+        except RetryAfter as e:
+            if attempt < max_retries:
+                wait_sec = getattr(e, 'retry_after', 1) or 1
+                logger.warning(f"Flood control exceeded. Waiting {wait_sec}s before retry (attempt {attempt + 1}/{max_retries})...")
+                await asyncio.sleep(wait_sec)
+            else:
+                raise
 
 async def update_event_messages(context, event_id, event=None, current_query=None, update_image=False):
     """
@@ -32,46 +49,74 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
             if update_image and event.get('image_path') and os.path.exists(event['image_path']):
                 try:
                     with open(event['image_path'], 'rb') as f:
-                        await context.bot.edit_message_media(
+                        img_bytes = f.read()
+                    await _execute_with_retry(
+                        lambda: context.bot.edit_message_media(
                             chat_id=PUBLIC_CHANNEL_ID,
                             message_id=event['telegram_message_id'],
-                            media=InputMediaPhoto(media=f, caption=public_text),
+                            media=InputMediaPhoto(media=img_bytes, caption=public_text),
                             reply_markup=pub_keyboard
                         )
+                    )
                 except Exception as e:
-                    logger.error(f"Error editing message media in public channel for event {event_id}: {e}")
+                    if "not modified" not in str(e).lower():
+                        logger.error(f"Error editing message media in public channel for event {event_id}: {e}")
             elif event.get('image_path'):
                 try:
-                    await context.bot.edit_message_caption(
-                        chat_id=PUBLIC_CHANNEL_ID,
-                        message_id=event['telegram_message_id'],
-                        caption=public_text,
-                        reply_markup=pub_keyboard
-                    )
-                except Exception as e:
-                    if "not modified" not in str(e).lower():
-                        await context.bot.edit_message_text(
-                            chat_id=PUBLIC_CHANNEL_ID,
-                            message_id=event['telegram_message_id'],
-                            text=public_text,
-                            reply_markup=pub_keyboard
-                        )
-            else:
-                try:
-                    await context.bot.edit_message_text(
-                        chat_id=PUBLIC_CHANNEL_ID,
-                        message_id=event['telegram_message_id'],
-                        text=public_text,
-                        reply_markup=pub_keyboard
-                    )
-                except Exception as e:
-                    if "not modified" not in str(e).lower():
-                        await context.bot.edit_message_caption(
+                    await _execute_with_retry(
+                        lambda: context.bot.edit_message_caption(
                             chat_id=PUBLIC_CHANNEL_ID,
                             message_id=event['telegram_message_id'],
                             caption=public_text,
                             reply_markup=pub_keyboard
                         )
+                    )
+                except Exception as e:
+                    if "not modified" in str(e).lower():
+                        pass
+                    elif "no caption in the message to edit" in str(e).lower():
+                        try:
+                            await _execute_with_retry(
+                                lambda: context.bot.edit_message_text(
+                                    chat_id=PUBLIC_CHANNEL_ID,
+                                    message_id=event['telegram_message_id'],
+                                    text=public_text,
+                                    reply_markup=pub_keyboard
+                                )
+                            )
+                        except Exception as e_text:
+                            if "not modified" not in str(e_text).lower():
+                                raise e_text
+                    else:
+                        raise e
+            else:
+                try:
+                    await _execute_with_retry(
+                        lambda: context.bot.edit_message_text(
+                            chat_id=PUBLIC_CHANNEL_ID,
+                            message_id=event['telegram_message_id'],
+                            text=public_text,
+                            reply_markup=pub_keyboard
+                        )
+                    )
+                except Exception as e:
+                    if "not modified" in str(e).lower():
+                        pass
+                    elif "no text in the message to edit" in str(e).lower():
+                        try:
+                            await _execute_with_retry(
+                                lambda: context.bot.edit_message_caption(
+                                    chat_id=PUBLIC_CHANNEL_ID,
+                                    message_id=event['telegram_message_id'],
+                                    caption=public_text,
+                                    reply_markup=pub_keyboard
+                                )
+                            )
+                        except Exception as e_cap:
+                            if "not modified" not in str(e_cap).lower():
+                                raise e_cap
+                    else:
+                        raise e
         except Exception as e:
             if "not modified" not in str(e).lower():
                 logger.error(f"Error updating public channel message for event {event_id}: {e}")
@@ -88,7 +133,9 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
             disc_chat_id = current_query.message.chat_id
             update_discussion_message_info(event_id, disc_msg_id, disc_chat_id)
             try:
-                await current_query.edit_message_reply_markup(reply_markup=pub_keyboard)
+                await _execute_with_retry(
+                    lambda: current_query.edit_message_reply_markup(reply_markup=pub_keyboard)
+                )
                 query_edited = True
             except Exception as e:
                 if "not modified" not in str(e).lower():
@@ -96,10 +143,12 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
 
     if disc_msg_id and disc_chat_id and not query_edited:
         try:
-            await context.bot.edit_message_reply_markup(
-                chat_id=int(disc_chat_id),
-                message_id=int(disc_msg_id),
-                reply_markup=pub_keyboard
+            await _execute_with_retry(
+                lambda: context.bot.edit_message_reply_markup(
+                    chat_id=int(disc_chat_id),
+                    message_id=int(disc_msg_id),
+                    reply_markup=pub_keyboard
+                )
             )
         except Exception as e:
             if "not modified" not in str(e).lower():
