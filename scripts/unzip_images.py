@@ -113,7 +113,7 @@ def unzip_in_directory(target_path, delete_zip=False):
 
 def unzip_date_range(start_str, end_str, data_dir, delete_zip=False):
     dates = get_date_range(start_str, end_str)
-    print(f"📅 Checking {len(dates)} day(s) between {start_str} and {end_str} in {data_dir}...")
+    print(f"🗓️ Checking {len(dates)} day(s) between {start_str} and {end_str} in {data_dir}...")
     
     total_extracted = 0
     days_with_archives = 0

@@ -250,7 +250,7 @@ def create_story_image(event_data, original_image_path, output_dir):
                 seats_display = str(max_s)
                 
             details = [
-                ("📅 Data:", event_data.get('date', 'N/A')),
+                ("🗓️ Data:", event_data.get('date', 'N/A')),
                 ("🎲 Sistema:", event_data.get('system', 'N/A')),
                 ("🪑 Posti:", seats_display)
             ]
