@@ -44,7 +44,7 @@ def format_public_event_message(event_data):
 
     return (
         f"📣 **{title}**\n"
-        f"📅 Data: {event_data.get('date', 'N/A')}\n"
+        f"🗓️ Data: {event_data.get('date', 'N/A')}\n"
         f"🎲 Sistema: {event_data.get('system', 'N/A')}\n"
         f"👑 Master: {event_data.get('host') or 'N/A'}\n"
         f"🪑 Posti: {posti}\n"
@@ -199,7 +199,7 @@ def format_event_participants_message(event, reservations):
         f"📌 {event_display}\n"
     )
     if date:
-        text += f"📅 <i>{html.escape(date)}</i>\n"
+        text += f"🗓️ <i>{html.escape(date)}</i>\n"
     text += f"🪑 Posti occupati: <b>{booked}/{max_str}</b>\n\n"
 
     if not reservations:

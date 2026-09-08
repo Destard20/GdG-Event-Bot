@@ -87,7 +87,7 @@ async def send_story_to_telegram(photo_path, event):
         caption = (
             f"📸 <b>Storia Instagram (Generata Manualmente)</b>\n\n"
             f"<b>Evento #{event['id']}:</b> {event.get('title', 'Senza titolo')}\n"
-            f"📅 <b>Data:</b> {event.get('date', 'N/A')}\n"
+            f"�️ <b>Data:</b> {event.get('date', 'N/A')}\n"
             f"🎲 <b>Sistema:</b> {event.get('system', 'N/A')}"
         )
         with open(photo_path, "rb") as f:
