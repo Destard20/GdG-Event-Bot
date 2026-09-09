@@ -1,4 +1,5 @@
 import os
+import shutil
 import uuid
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 from pilmoji import Pilmoji
@@ -47,6 +48,38 @@ def delete_local_image(filepath):
             os.remove(filepath)
     except Exception as e:
         logger.error(f"Error deleting image {filepath}: {e}")
+
+def move_image_locally(current_path, data_dir, date_str=None):
+    if not current_path or not os.path.exists(current_path):
+        logger.warning(f"Cannot move image: file does not exist at {current_path}")
+        return None
+    try:
+        daily_dir = get_daily_dir(data_dir, date_str)
+        filename = os.path.basename(current_path)
+        new_filepath = os.path.join(daily_dir, filename)
+
+        # If the destination path is the exact same path, nothing to move
+        if os.path.abspath(current_path) == os.path.abspath(new_filepath):
+            return new_filepath
+
+        shutil.move(current_path, new_filepath)
+
+        # Clean up old directory if empty
+        old_dir = os.path.dirname(os.path.abspath(current_path))
+        try:
+            curr = old_dir
+            base_abs = os.path.abspath(data_dir)
+            while curr != base_abs and os.path.exists(curr) and not os.listdir(curr):
+                parent = os.path.dirname(curr)
+                os.rmdir(curr)
+                curr = parent
+        except OSError:
+            pass
+
+        return new_filepath
+    except Exception as e:
+        logger.error(f"Error moving image {current_path} to {daily_dir}: {e}")
+        return None
 
 def build_horizontal_collage(images):
     """

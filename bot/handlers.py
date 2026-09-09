@@ -16,7 +16,7 @@ from core.db import (
     get_reservation_by_user,
 )
 from core.config import DATA_DIR, ADMIN_CHAT_ID, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
-from utils.image_utils import save_image_locally, create_collage_from_bytes, delete_local_image
+from utils.image_utils import save_image_locally, create_collage_from_bytes, delete_local_image, move_image_locally
 from utils.templates import format_instagram_story, format_public_event_message
 from utils.date_utils import parse_user_date, format_standard_event_date, validate_event_date_anomalies
 from bot.keyboards import get_approval_keyboard, get_event_booking_keyboard
@@ -814,6 +814,10 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         s1 = update_event_field(event_id, "date", formatted_date)
         s2 = update_event_field(event_id, "normalized_date", norm_date)
         success = s1 and s2
+        if success and current_event.get("image_path"):
+            new_img_path = move_image_locally(current_event.get("image_path"), DATA_DIR, norm_date)
+            if new_img_path and new_img_path != current_event.get("image_path"):
+                update_event_field(event_id, "image_path", new_img_path)
     elif field == "normalized_date":
         parsed = parse_user_date(value)
         if not parsed:
@@ -825,6 +829,10 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         dt, _ = parsed
         norm_date = dt.strftime("%d-%m-%Y")
         success = update_event_field(event_id, "normalized_date", norm_date)
+        if success and current_event.get("image_path"):
+            new_img_path = move_image_locally(current_event.get("image_path"), DATA_DIR, norm_date)
+            if new_img_path and new_img_path != current_event.get("image_path"):
+                update_event_field(event_id, "image_path", new_img_path)
     elif field == "seats":
         if value.lower() in ["null", "nessuno", "0", "unlimited", ""]:
             update_event_field(event_id, "max_seats", None)
