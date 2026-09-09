@@ -90,6 +90,8 @@ GEMINI_MODEL=gemini-3.1-flash-lite
 WP_URL=https://www.gildadelgrifonetorino.it
 WP_USERNAME=your_wp_username
 WP_APP_PASSWORD=xxxx xxxx xxxx xxxx
+WP_POST_CATEGORY=
+
 
 # Instagram Graph API (Optional / Meta Developer)
 IG_ACCESS_TOKEN=EAAG...

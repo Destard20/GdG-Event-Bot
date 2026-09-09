@@ -290,6 +290,7 @@ GdG-Event-Bot/
 | `WP_URL` | WordPress base URL | `https://www.gildadelgrifonetorino.it` |
 | `WP_USERNAME` | WordPress username | `direttivogilda` |
 | `WP_APP_PASSWORD` | WordPress Application Password | `xxxx xxxx xxxx xxxx` |
+| `WP_POST_CATEGORY` | (Optional) Category ID or name for generated posts | `12` or `Eventi` |
 | `IG_ACCESS_TOKEN` | Meta Long-Lived Graph API User Access Token | `EAA...` |
 | `IG_ACCOUNT_ID` | Instagram Business Account Numeric ID | `178414...` |
 | `DATA_DIR` | (Optional) Custom path for storage | `/var/gdg_data` |
