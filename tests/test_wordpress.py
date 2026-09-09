@@ -142,14 +142,16 @@ class TestWordPressPostCategory(unittest.TestCase):
             self.assertIsNone(post_id)
 
     def test_get_category_ids_helper(self):
-        self.assertIsNone(get_category_ids(None))
-        self.assertIsNone(get_category_ids(""))
-        self.assertIsNone(get_category_ids("   "))
-        self.assertIsNone(get_category_ids(0))
-        self.assertIsNone(get_category_ids("0"))
-        self.assertEqual(get_category_ids(10), [10])
-        self.assertEqual(get_category_ids("10"), [10])
-        self.assertEqual(get_category_ids(" 10 "), [10])
-        self.assertEqual(get_category_ids("10, 20"), [10, 20])
-        self.assertEqual(get_category_ids([10, "20"]), [10, 20])
+        with patch.object(config, "WP_POST_CATEGORY", None), \
+             patch("core.wordpress.WP_POST_CATEGORY", None):
+            self.assertIsNone(get_category_ids(None))
+            self.assertIsNone(get_category_ids(""))
+            self.assertIsNone(get_category_ids("   "))
+            self.assertIsNone(get_category_ids(0))
+            self.assertIsNone(get_category_ids("0"))
+            self.assertEqual(get_category_ids(10), [10])
+            self.assertEqual(get_category_ids("10"), [10])
+            self.assertEqual(get_category_ids(" 10 "), [10])
+            self.assertEqual(get_category_ids("10, 20"), [10, 20])
+            self.assertEqual(get_category_ids([10, "20"]), [10, 20])
 
