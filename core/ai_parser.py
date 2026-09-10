@@ -57,6 +57,7 @@ def parse_event_message(message_text):
       - Genre / Themes (e.g. "Genere: Horror / Investigativo")
       Format them cleanly as short bulleted lines (using "• ") or concise text. If none of these exist in the message, output "".
     - "description": The synopsis or pitch of the event (focus on the story or game description; do not duplicate lines already extracted into extra_info).
+    - "is_roleplay": Boolean (true or false). Output true if the event is a tabletop roleplaying game session (RPG / GDR, e.g., D&D, Pathfinder, Call of Cthulhu, Sine Requie, Cyberpunk, etc.) where someone acts as Master / Game Master / Dungeon Master. Output false if it is a board game, card game, tournament, or other non-RPG event (where the organizer is a Host).
     
     Return ONLY valid JSON.
     
@@ -77,6 +78,11 @@ def parse_event_message(message_text):
         # Deterministic regex safety-net for "Posti [liberi]: X/Y"
         if isinstance(data, dict) and data.get("is_event", True):
             data['extra_info'] = str(data.get('extra_info') or '').strip()
+            raw_rp = data.get('is_roleplay')
+            if isinstance(raw_rp, str):
+                data['is_roleplay'] = raw_rp.strip().lower() in ['true', '1', 'yes', 'si', 'sì']
+            else:
+                data['is_roleplay'] = bool(raw_rp)
             m = re.search(r'Posti(?:\s+liberi|\s+disponibili)?\s*:\s*(\d+)\s*/\s*(\d+)', message_text, re.IGNORECASE)
             if m:
                 free = int(m.group(1))

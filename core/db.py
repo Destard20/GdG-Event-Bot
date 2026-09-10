@@ -34,7 +34,8 @@ def init_db():
                     discussion_message_id INTEGER,
                     discussion_chat_id TEXT,
                     wp_post_id INTEGER,
-                    wp_post_url TEXT
+                    wp_post_url TEXT,
+                    is_roleplay INTEGER DEFAULT 0
                 )
             ''')
             cursor.execute('''
@@ -56,6 +57,8 @@ def init_db():
                 cursor.execute("ALTER TABLE events ADD COLUMN discussion_message_id INTEGER")
             if 'discussion_chat_id' not in columns:
                 cursor.execute("ALTER TABLE events ADD COLUMN discussion_chat_id TEXT")
+            if 'is_roleplay' not in columns:
+                cursor.execute("ALTER TABLE events ADD COLUMN is_roleplay INTEGER DEFAULT 0")
             cursor.execute("PRAGMA table_info(reservations)")
             res_columns = [col[1] for col in cursor.fetchall()]
             if 'full_name' not in res_columns:
@@ -71,11 +74,13 @@ def insert_event(event_data, image_path, original_text, message_link=None, teleg
         if telegram_message_id is None and isinstance(event_data, dict):
             telegram_message_id = event_data.get('telegram_message_id')
 
+        is_rp = 1 if event_data.get('is_roleplay') in [True, 1, '1', 'true', 'True'] else 0
+
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO events (title, date, normalized_date, system, host, seats, booked_seats, max_seats, description, extra_info, original_text, image_path, status, is_recap, message_link, telegram_message_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+                INSERT INTO events (title, date, normalized_date, system, host, seats, booked_seats, max_seats, description, extra_info, original_text, image_path, status, is_recap, message_link, telegram_message_id, is_roleplay)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
             ''', (
                 event_data.get('title', ''),
                 event_data.get('date', ''),
@@ -90,7 +95,8 @@ def insert_event(event_data, image_path, original_text, message_link=None, teleg
                 original_text,
                 image_path,
                 message_link,
-                telegram_message_id
+                telegram_message_id,
+                is_rp
             ))
             conn.commit()
             return cursor.lastrowid
@@ -111,7 +117,7 @@ def update_event_field(event_id, field, value):
     allowed_fields = [
         'title', 'date', 'normalized_date', 'system', 'host',
         'seats', 'booked_seats', 'max_seats', 'description', 'extra_info',
-        'discussion_message_id', 'discussion_chat_id', 'image_path'
+        'discussion_message_id', 'discussion_chat_id', 'image_path', 'is_roleplay'
     ]
     if field not in allowed_fields:
         return False

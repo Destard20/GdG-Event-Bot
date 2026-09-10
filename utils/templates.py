@@ -42,11 +42,14 @@ def format_public_event_message(event_data):
     desc = (event_data.get('description') or '').strip()
     desc_block = f"\n📝 {desc}" if desc else ""
 
+    is_rp = bool(event_data.get('is_roleplay'))
+    host_label = "Master" if is_rp else "Host"
+
     return (
         f"📣 **{title}**\n"
         f"🗓️ Data: {event_data.get('date', 'N/A')}\n"
         f"🎲 Sistema: {event_data.get('system', 'N/A')}\n"
-        f"👑 Master: {event_data.get('host') or 'N/A'}\n"
+        f"👑 {host_label}: {event_data.get('host') or 'N/A'}\n"
         f"🪑 Posti: {posti}\n"
         f"{extra_block}"
         f"{desc_block}"
@@ -60,6 +63,8 @@ def format_instagram_story(event_data):
     else:
         posti = str(max_s)
 
+    is_rp = bool(event_data.get('is_roleplay'))
+    host_label = "Master" if is_rp else "Host"
     host = event_data.get('host') or 'N/A'
     extra = (event_data.get('extra_info') or '').strip()
     extra_block = f"\n🏷️ Dettagli:\n{extra}\n" if extra else ""
@@ -70,7 +75,7 @@ def format_instagram_story(event_data):
         f"Titolo: {event_data.get('title', 'N/A')}\n"
         f"Data: {event_data.get('date', 'N/A')}\n"
         f"Sistema: {event_data.get('system', 'N/A')}\n"
-        f"Master/Host: {host}\n"
+        f"{host_label}: {host}\n"
         f"Posti: {posti}\n"
         f"{extra_block}"
         f"{desc_block}"
