@@ -150,6 +150,7 @@ In `ADMIN_CHAT_ID`, reply to any event announcement message (pending or already 
 - `/event_edit_normalized_date <DD-MM-YYYY>`
 - `/event_edit_system <Sistema/Gioco>`
 - `/event_edit_host <Master o Host>`
+- `/event_edit_type <rpg o boardgame>` (cambia la tipologia dell'evento tra Gioco di Ruolo con 'Master' o Gioco da Tavolo con 'Host')
 - `/event_edit_seats <X/Y, numero intero, oppure null>`
 - `/event_edit_booked <numero intero>`
 - `/event_edit_extra <Difficoltà, avvertenze, tag, oppure null per rimuovere>`

@@ -80,6 +80,7 @@ The system automates the ingestion, standardization, social sharing, and booking
     - A deterministic regex safety net enforces `max_seats = free` and `booked_seats = 0` in `core/ai_parser.py`.
   - `extra_info` (string): Additional details (difficulty/beginner friendliness, format/duration/campaign, trigger warnings/disclaimers/X-Card, genres).
   - `description` (string): Event pitch/synopsis.
+  - `is_roleplay` (boolean): `true` if the event is a tabletop roleplaying game (displays as `Master:`), `false` if it is a board game or other non-RPG event (displays as `Host:`).
 - **Quota / Credit Depletion Handling:**
   - If Google Gemini returns HTTP 429 or prepayment credits are depleted (`GeminiQuotaError`), the bot alerts admins immediately in `ADMIN_CHAT_ID`:
     ```
@@ -265,6 +266,7 @@ GdG-Event-Bot/
 | `telegram_message_id`| INTEGER | | Telegram Message ID of published event post |
 | `wp_post_id` | INTEGER | | Associated WordPress post ID |
 | `wp_post_url` | TEXT | | Associated WordPress post edit/view URL |
+| `is_roleplay` | INTEGER | DEFAULT 0 | 1 if roleplaying event (Master), 0 if non-RPG (Host) |
 
 ### Table: `reservations`
 | Column | Type | Constraints / Default | Description |

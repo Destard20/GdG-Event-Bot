@@ -29,6 +29,7 @@ Se l'IA ha commesso un errore o i dettagli del tavolo cambiano, puoi correggere 
 - `/event_edit_date <DD-MM-YYYY HH:MM>` *(es. 05-09-2026 21:00 - calcolerà automaticamente il giorno della settimana)*
 - `/event_edit_system <Sistema di Gioco>`
 - `/event_edit_host <Nome del Master/Host>`
+- `/event_edit_type <rpg|boardgame>` *(imposta se l'evento è un gioco di ruolo [Master] o gioco da tavolo [Host])*
 - `/event_edit_seats <X/Y>` *(es. 0/5 per azzerare i posti occupati su 5 massimi)*
 - `/event_edit_extra <Note extra, avvertenze o tag>`
 - `/event_edit_description <Nuova descrizione dell'evento>`

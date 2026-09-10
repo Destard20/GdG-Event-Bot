@@ -80,7 +80,12 @@ def main():
     application.add_handler(CommandHandler("resume", bot_resume_command))
     application.add_handler(CommandHandler("bot_status", bot_status_command))
     
-    edit_cmds = ["event_edit_title", "event_edit_date", "event_edit_normalized_date", "event_edit_system", "event_edit_seats", "event_edit_booked", "event_edit_host", "event_edit_extra", "event_edit_description", "event_edit_image"]
+    edit_cmds = [
+        "event_edit_title", "event_edit_date", "event_edit_normalized_date",
+        "event_edit_system", "event_edit_seats", "event_edit_booked",
+        "event_edit_host", "event_edit_extra", "event_edit_description",
+        "event_edit_image", "event_edit_type"
+    ]
     for cmd in edit_cmds:
         application.add_handler(CommandHandler(cmd, event_edit_command, block=False))
     application.add_handler(CommandHandler("event_sub_add", event_sub_add_command))

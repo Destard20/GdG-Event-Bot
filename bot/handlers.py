@@ -754,7 +754,8 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "/event_edit_host": "host",
         "/event_edit_extra": "extra_info",
         "/event_edit_description": "description",
-        "/event_edit_image": "image_path"
+        "/event_edit_image": "image_path",
+        "/event_edit_type": "is_roleplay"
     }
     
     field = field_map.get(cmd)
@@ -871,6 +872,24 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if value.lower() in ["null", "nessuno", "0", "none", "elimina", "cancella"]:
             value = ""
         success = update_event_field(event_id, "extra_info", value)
+    elif field == "is_roleplay":
+        val_clean = value.strip().lower()
+        if val_clean in ["rpg", "gdr", "ruolo", "master", "true", "1", "si", "sì", "yes"]:
+            success = update_event_field(event_id, "is_roleplay", 1)
+        elif val_clean in ["boardgame", "gdt", "tavolo", "host", "false", "0", "no", "non rpg", "non gdr"]:
+            success = update_event_field(event_id, "is_roleplay", 0)
+        elif val_clean == "":
+            cur_val = current_event.get("is_roleplay") or 0
+            new_val = 0 if cur_val else 1
+            success = update_event_field(event_id, "is_roleplay", new_val)
+        else:
+            await update.message.reply_text(
+                "❌ Tipo non valido.\n"
+                "Usa <code>/event_edit_type rpg</code> (o gdr) per gioco di ruolo (Master),\n"
+                "oppure <code>/event_edit_type boardgame</code> (o tavolo) per altri giochi (Host).",
+                parse_mode="HTML"
+            )
+            return
     else:
         success = update_event_field(event_id, field, value)
 
