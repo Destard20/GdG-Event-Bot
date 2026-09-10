@@ -54,7 +54,7 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
                         lambda: context.bot.edit_message_media(
                             chat_id=PUBLIC_CHANNEL_ID,
                             message_id=event['telegram_message_id'],
-                            media=InputMediaPhoto(media=img_bytes, caption=public_text),
+                            media=InputMediaPhoto(media=img_bytes, caption=public_text, parse_mode="HTML"),
                             reply_markup=pub_keyboard
                         )
                     )
@@ -68,7 +68,8 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
                             chat_id=PUBLIC_CHANNEL_ID,
                             message_id=event['telegram_message_id'],
                             caption=public_text,
-                            reply_markup=pub_keyboard
+                            reply_markup=pub_keyboard,
+                            parse_mode="HTML"
                         )
                     )
                 except Exception as e:
@@ -81,7 +82,8 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
                                     chat_id=PUBLIC_CHANNEL_ID,
                                     message_id=event['telegram_message_id'],
                                     text=public_text,
-                                    reply_markup=pub_keyboard
+                                    reply_markup=pub_keyboard,
+                                    parse_mode="HTML"
                                 )
                             )
                         except Exception as e_text:
@@ -96,7 +98,8 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
                             chat_id=PUBLIC_CHANNEL_ID,
                             message_id=event['telegram_message_id'],
                             text=public_text,
-                            reply_markup=pub_keyboard
+                            reply_markup=pub_keyboard,
+                            parse_mode="HTML"
                         )
                     )
                 except Exception as e:
@@ -109,7 +112,8 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
                                     chat_id=PUBLIC_CHANNEL_ID,
                                     message_id=event['telegram_message_id'],
                                     caption=public_text,
-                                    reply_markup=pub_keyboard
+                                    reply_markup=pub_keyboard,
+                                    parse_mode="HTML"
                                 )
                             )
                         except Exception as e_cap:

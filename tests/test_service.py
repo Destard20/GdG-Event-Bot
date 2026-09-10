@@ -50,6 +50,7 @@ class TestService(unittest.IsolatedAsyncioTestCase):
             await update_event_messages(context, event_id=1, event=event)
 
         context.bot.edit_message_caption.assert_called_once()
+        self.assertEqual(context.bot.edit_message_caption.call_args.kwargs.get("parse_mode"), "HTML")
         context.bot.edit_message_text.assert_not_called()
     async def test_update_event_messages_caption_not_modified_ignored(self):
         event = {

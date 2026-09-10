@@ -201,13 +201,15 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 chat_id=PUBLIC_CHANNEL_ID,
                                 photo=f,
                                 caption=public_text,
-                                reply_markup=pub_keyboard
+                                reply_markup=pub_keyboard,
+                                parse_mode="HTML"
                             )
                     else:
                         pub_msg = await context.bot.send_message(
                             chat_id=PUBLIC_CHANNEL_ID,
                             text=public_text,
-                            reply_markup=pub_keyboard
+                            reply_markup=pub_keyboard,
+                            parse_mode="HTML"
                         )
                     update_telegram_message_info(event_id, pub_msg.message_id, pub_msg.link)
                 except Exception as e:

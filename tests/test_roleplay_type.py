@@ -45,6 +45,38 @@ class TestRoleplayTypeFormatting(unittest.TestCase):
         text = format_public_event_message(event_no_flag)
         self.assertIn("👑 Host: Admin", text)
 
+    def test_format_public_event_message_bold_title_and_plain_details(self):
+        event = {
+            "title": "D&D Session",
+            "date": "05-09-2026 21:00",
+            "system": "D&D 5e",
+            "host": "Matt Mercer",
+            "max_seats": 5,
+            "booked_seats": 2,
+            "extra_info": "Portare dadi e scheda",
+            "description": "Avventura epica",
+        }
+        text = format_public_event_message(event)
+        # Title must use <b> and not **
+        self.assertIn("📣 <b>D&amp;D Session</b>", text)
+        self.assertNotIn("**", text)
+        # Details label must not have ** and must not be bolded
+        self.assertIn("\n🏷️ Dettagli:\nPortare dadi e scheda\n", text)
+        self.assertNotIn("<b>Dettagli:</b>", text)
+        self.assertNotIn("**Dettagli:**", text)
+
+    def test_format_public_event_message_cancelled_bold(self):
+        event = {
+            "title": "Game Night",
+            "status": "cancelled",
+            "max_seats": 4,
+            "extra_info": "Info extra",
+        }
+        text = format_public_event_message(event)
+        self.assertIn("📣 <b>❌ [ANNULLATO] Game Night</b>", text)
+        self.assertNotIn("**", text)
+        self.assertIn("\n🏷️ Dettagli:\nInfo extra\n", text)
+
     def test_format_instagram_story_rpg(self):
         event_rpg = {
             "title": "Call of Cthulhu",
