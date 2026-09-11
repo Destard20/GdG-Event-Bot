@@ -159,7 +159,7 @@ The system automates the ingestion, standardization, social sharing, and booking
 3. **Collage Assembly (`utils/image_utils.create_collage`):**
    - Collects images for all matching events.
    - Resizes images to a uniform average height preserving individual aspect ratios (no distortion, no cropped borders).
-   - Stitches horizontally and saves to `[DATA_DIR]/YYYY/MM/DD/recap_collage_DD-MM-YYYY.jpg`.
+   - Arranges images into rows based on `MAX_EVENTS_PER_ROW` (centering shorter rows for a balanced layout) and saves to `[DATA_DIR]/YYYY/MM/DD/recap_collage_DD-MM-YYYY.jpg`.
 4. **Text Formatting (`utils/templates.recap_generate_text` & `recap_links_text`):**
    - Italian day names (Lunedì, Mercoledì, etc.).
    - Lists events in caption with bold titles and live available seats: `- <b>Titolo</b> (Sistema) : X/Y` (or `- ❌ <b>Titolo</b> (Sistema) : X/Y [ANNULLATO]`).
@@ -296,6 +296,7 @@ GdG-Event-Bot/
 | `IG_ACCESS_TOKEN` | Meta Long-Lived Graph API User Access Token | `EAA...` |
 | `IG_ACCOUNT_ID` | Instagram Business Account Numeric ID | `178414...` |
 | `DATA_DIR` | (Optional) Custom path for storage | `/var/gdg_data` |
+| `MAX_EVENTS_PER_ROW` | (Optional) Maximum number of event images per row in collages | `4` |
 
 ---
 

@@ -28,7 +28,7 @@ This application monitors a Telegram channel, extracts event information using *
 - **Automated Telegram Channel Interception:** Listens to the public announcement channel. When an admin posts a message, the bot parses the content with Gemini AI. If confirmed as a bookable event, the bot deletes the raw post and routes it to an admin review chat; non-event announcements, reminders, and notices are left untouched in the channel.
 - **Interactive Live Booking System & Same-Day Conflict Warnings:** Published events feature inline `[➕ Prenota]`, `[👥 Lista]`, and `[➖ Annulla]` buttons across both the announcement channel and discussion group. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically. The `[👥 Lista]` button deep-links to a private DM with the bot (`/start subs_{id}`), providing a full roster of participants without generating chat spam. If a user reserves a seat on multiple valid events on the same day, the bot automatically warns them in chat with links to all conflicting events so they can choose which to keep.
 - **Event Cancellation:** Admins can cancel any event at any time using a persistent `[Cancel]` button. Cancelled events update live in the channel and are flagged as `[ANNULLATO]` with zero seats in recaps and graphics.
-- **Daily Recaps & Multi-Image Collages:** Automatically runs at 18:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/recap_generate`. Stitches event artwork into clean horizontal collages without cropping borders.
+- **Daily Recaps & Multi-Image Collages:** Automatically runs at 18:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/recap_generate`. Stitches event artwork into clean collages (wrapped into multiple rows via `MAX_EVENTS_PER_ROW`) without cropping borders.
 - **Instagram Story Generator:** Programmatically builds 1080x1920 Instagram Story cards for individual events and daily recaps using Pillow (handling top banner artwork, dynamic text wrapping, seat counters, and association location footers).
 - **WordPress REST API Integration:** AI writes an Italian recap article embedding event details, Telegram message links, and individual event pictures (max 400x400). The recap collage is set as the featured image. Posts can be published publicly directly from Telegram.
 
@@ -99,9 +99,12 @@ IG_ACCOUNT_ID=178414...
 
 # Storage Configuration (Optional)
 # DATA_DIR=/path/to/custom/data
+
+# Collage Configuration (Optional)
+MAX_EVENTS_PER_ROW=4
 ```
 
-> **Note on WordPress:** `WP_APP_PASSWORD` must be generated in WordPress Admin under **Users > Profile > Application Passwords**, not your primary login password.
+> **Note on WordPress:** `WP_APP_PASSWORD` must be generated in WordPress Admin under **Users > Profile > Application Passwords**, not your primary login password. It must also have no spaces.
 >
 > **Note on Telegram Channel:** The bot **must be added as an Administrator** in the public channel with permissions to read, send, and delete messages.
 
