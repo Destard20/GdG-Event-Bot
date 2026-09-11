@@ -22,6 +22,8 @@ WP_POST_CATEGORY = os.getenv("WP_POST_CATEGORY")
 IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
 IG_ACCOUNT_ID = os.getenv("IG_ACCOUNT_ID")
 
+MAX_EVENTS_PER_ROW = int(os.getenv("MAX_EVENTS_PER_ROW", "0"))
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 DEFAULT_DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 

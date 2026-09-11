@@ -50,6 +50,26 @@ class TestMultiImageCollageAndMediaGroup(unittest.IsolatedAsyncioTestCase):
         expected_total_width = expected_w1 + expected_w2 + expected_w3
         self.assertEqual(collage_img.width, expected_total_width)
 
+    def test_build_collage_multi_row_wrap(self):
+        import io
+        from PIL import Image
+        from utils.image_utils import build_horizontal_collage
+
+        # Create 5 dummy images (all 100x100)
+        images = [Image.new('RGB', (100, 100), color=(i * 20, i * 20, i * 20)) for i in range(5)]
+
+        # Wrap at 2 per row -> 3 rows (2, 2, 1)
+        collage = build_horizontal_collage(images, max_per_row=2)
+        self.assertIsNotNone(collage)
+        self.assertEqual(collage.height, 300) # 3 rows of height 100
+        self.assertEqual(collage.width, 200) # max row width is 2 * 100 = 200
+
+        # Wrap at 3 per row -> 2 rows (3, 2)
+        collage = build_horizontal_collage(images, max_per_row=3)
+        self.assertIsNotNone(collage)
+        self.assertEqual(collage.height, 200) # 2 rows of height 100
+        self.assertEqual(collage.width, 300) # max row width is 3 * 100 = 300
+
     def test_create_collage_from_bytes_single_and_empty(self):
         from utils.image_utils import create_collage_from_bytes
 

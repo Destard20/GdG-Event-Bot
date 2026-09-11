@@ -6,7 +6,7 @@ from pilmoji import Pilmoji
 import logging
 import textwrap
 from datetime import datetime
-from core.config import FONTS_DIR
+from core.config import FONTS_DIR, MAX_EVENTS_PER_ROW
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +81,10 @@ def move_image_locally(current_path, data_dir, date_str=None):
         logger.error(f"Error moving image {current_path} to {daily_dir}: {e}")
         return None
 
-def build_horizontal_collage(images):
+def build_horizontal_collage(images, max_per_row=None):
     """
     Given a list of PIL Image objects, resizes them proportionally to their average height
-    and stitches them horizontally side by side without stretching or cropping.
+    and stitches them into rows if the number of images exceeds max_per_row.
     """
     if not images:
         return None
@@ -114,16 +114,30 @@ def build_horizontal_collage(images):
         new_width = max(1, int(im.width * (avg_height / im.height)))
         resized_images.append(im.resize((new_width, avg_height), Image.Resampling.LANCZOS))
 
-    new_widths = [im.width for im in resized_images]
-    total_width = sum(new_widths)
-    max_height = avg_height
+    if max_per_row is None:
+        max_per_row = MAX_EVENTS_PER_ROW
 
-    collage = Image.new('RGB', (total_width, max_height))
+    if not max_per_row or max_per_row <= 0:
+        max_per_row = len(resized_images)
 
-    x_offset = 0
-    for im in resized_images:
-        collage.paste(im, (x_offset, 0))
-        x_offset += im.width
+    rows = []
+    for i in range(0, len(resized_images), max_per_row):
+        rows.append(resized_images[i:i + max_per_row])
+
+    row_widths = [sum(im.width for im in row) for row in rows]
+    total_width = max(row_widths)
+    total_height = len(rows) * avg_height
+
+    collage = Image.new('RGB', (total_width, total_height))
+
+    y_offset = 0
+    for i, row in enumerate(rows):
+        # Center row horizontally if shorter than max row
+        x_offset = (total_width - row_widths[i]) // 2
+        for im in row:
+            collage.paste(im, (x_offset, y_offset))
+            x_offset += im.width
+        y_offset += avg_height
 
     return collage
 
