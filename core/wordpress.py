@@ -124,6 +124,7 @@ def upload_media(filepath):
     }
     
     try:
+        logger.info(f"WordPress: Uploading media file '{filename}'...")
         with open(filepath, 'rb') as f:
             media_data = f.read()
             
@@ -134,14 +135,15 @@ def upload_media(filepath):
             
         response = requests.post(url, headers=headers, data=media_data)
         if response.status_code in [200, 201]:
-            logger.info("Image uploaded to WordPress successfully.")
             resp_json = response.json()
-            return {'id': resp_json.get('id'), 'source_url': resp_json.get('source_url')}
+            media_id = resp_json.get('id')
+            logger.info(f"WordPress: Image '{filename}' uploaded successfully (Media ID: {media_id}).")
+            return {'id': media_id, 'source_url': resp_json.get('source_url')}
         else:
-            logger.error(f"Failed to upload media to WP: {response.status_code} - {response.text}")
+            logger.error(f"WordPress: Failed to upload media '{filename}': {response.status_code} - {response.text}")
             return None
     except Exception as e:
-        logger.error(f"Error uploading media to WP: {e}")
+        logger.error(f"WordPress: Error uploading media '{filename}': {e}")
         return None
 
 def publish_article(title, content, media_id=None, category=None):
@@ -176,18 +178,19 @@ def publish_article(title, content, media_id=None, category=None):
         data['categories'] = category_ids
         
     try:
+        logger.info(f"WordPress: Publishing article '{title}' (media_id={media_id})...")
         response = requests.post(url, headers=headers, json=data)
         if response.status_code in [200, 201]:
-            logger.info("Article published to WordPress successfully.")
             resp_json = response.json()
             post_id = resp_json.get('id')
             edit_link = f"{wp_url.rstrip('/')}/wp-admin/post.php?post={post_id}&action=edit"
+            logger.info(f"WordPress: Article '{title}' published successfully as draft (Post ID: {post_id}).")
             return edit_link, post_id
         else:
-            logger.error(f"Failed to publish to WP: {response.status_code} - {response.text}")
+            logger.error(f"WordPress: Failed to publish article '{title}': {response.status_code} - {response.text}")
             return False, None
     except Exception as e:
-        logger.error(f"Error publishing to WP: {e}")
+        logger.error(f"WordPress: Error publishing article '{title}': {e}")
         return False, None
 
 def update_article_status(post_id, status='publish'):
@@ -215,12 +218,12 @@ def update_article_status(post_id, status='publish'):
     try:
         response = requests.post(url, headers=headers, json=data)
         if response.status_code in [200, 201]:
-            logger.info(f"Article {post_id} status updated to {status}.")
+            logger.info(f"WordPress: Article {post_id} status updated to '{status}'.")
             return True
         else:
-            logger.error(f"Failed to update article status on WP: {response.status_code} - {response.text}")
+            logger.error(f"WordPress: Failed to update article {post_id} status to '{status}': {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        logger.error(f"Error updating article status on WP: {e}")
+        logger.error(f"WordPress: Error updating article {post_id} status to '{status}': {e}")
         return False
 

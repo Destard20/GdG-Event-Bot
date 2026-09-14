@@ -41,6 +41,7 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False, reply_to_
     else:
         day_str = days_it.get(now.strftime("%A"), now.strftime("%A"))
     
+    logger.info(f"Scheduler: Generating daily recap (manual={is_manual}, date={date_str})...")
     events = get_pending_events_for_recap(date_str)
     if not events:
         logger.info(f"No events pending for recap on {date_str}.")
@@ -81,9 +82,11 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False, reply_to_
     # For now, mark them so they don't get picked up again immediately.
     event_ids = [ev['id'] for ev in events]
     mark_events_as_recap(event_ids)
+    logger.info(f"Scheduler: Daily recap successfully generated and sent to admin for date {date_str} ({len(events)} events).")
     return True
 
 async def archive_today_images():
+    logger.info("Scheduler: Starting archive_today_images job...")
     now = datetime.now()
     year = now.strftime("%Y")
     month = now.strftime("%m")
@@ -91,7 +94,7 @@ async def archive_today_images():
 
     target_dir = os.path.join(DATA_DIR, year, month, day)
     if not os.path.exists(target_dir):
-        logger.info(f"Archive: No folder found for today ({target_dir}).")
+        logger.info(f"Archive: No folder found for today ({target_dir}). Finished.")
         return
 
     image_extensions = ("*.jpg", "*.jpeg", "*.png", "*.webp")
@@ -100,7 +103,7 @@ async def archive_today_images():
         image_files.extend(glob.glob(os.path.join(target_dir, ext)))
 
     if not image_files:
-        logger.info(f"Archive: No image files found in {target_dir} to archive.")
+        logger.info(f"Archive: No image files found in {target_dir} to archive. Finished.")
         return
 
     zip_path = os.path.join(target_dir, "archive.zip")
@@ -123,12 +126,15 @@ async def archive_today_images():
         logger.error(f"Archive: Error creating zip archive in {target_dir}: {e}")
 
 async def archive_completed_month_logs():
+    logger.info("Scheduler: Starting archive_completed_month_logs job...")
     try:
         from core.config import LOGS_DIR
         from core.log_utils import zip_completed_months
         archived = zip_completed_months(LOGS_DIR)
         if archived:
             logger.info(f"Archive: Zipped monthly log files: {archived}")
+        else:
+            logger.info("Archive: No completed month logs needed archiving.")
     except Exception as e:
         logger.error(f"Archive: Error checking and zipping monthly logs: {e}")
 

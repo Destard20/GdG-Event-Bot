@@ -58,7 +58,7 @@ Se hai bisogno di forzare l'aggiunta o la rimozione di un utente (ad esempio se 
 
 ### 6. Controlli Generali del Bot
 - `/bot_pause`: Mette in pausa la lettura automatica dei messaggi per la creazione di eventi (utile durante lunghe discussioni nel canale).
-- `/resume`: Riattiva il bot.
+- `/bot_resume`: Riattiva il bot.
 - `/bot_status`: Mostra lo stato attuale del bot (Attivo/In pausa).
 
 ---

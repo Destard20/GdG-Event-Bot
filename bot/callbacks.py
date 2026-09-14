@@ -172,6 +172,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("publish_event_"):
         await query.answer()
         event_id = int(data.split("_")[2])
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} approved/published event #{event_id}.")
         update_event_status(event_id, "approved")
         
         keyboard = get_approved_event_keyboard(event_id)
@@ -240,6 +243,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("discard_event_"):
         await query.answer()
         event_id = int(data.split("_")[2])
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} discarded event #{event_id}.")
         event = get_event(event_id)
         if event and event.get('image_path'):
             delete_local_image(event['image_path'])
@@ -257,6 +263,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("cancel_event_"):
         await query.answer()
         event_id = int(data.split("_")[2])
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} cancelled event #{event_id}.")
         update_event_status(event_id, "cancelled")
         
         keyboard = get_cancelled_event_keyboard(event_id)
@@ -278,6 +287,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("reactivate_event_"):
         await query.answer("Evento riattivato!")
         event_id = int(data.split("_")[2])
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} reactivated event #{event_id}.")
         update_event_status(event_id, "approved")
         
         keyboard = get_approved_event_keyboard(event_id)
@@ -300,6 +312,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         # Publish the message to the public channel here
         date_str = data.split("_")[2]
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} approved and published recap for date {date_str}.")
         events = get_pending_events_for_recap(date_str)
         pub_msg = None
 
@@ -403,6 +418,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif data.startswith("discard_recap_"):
         await query.answer()
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} discarded recap.")
         try:
             await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ RECAP SCARTATO")
         except:
@@ -411,15 +429,19 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("publish_wp_"):
         await query.answer()
         post_id = int(data.split("_")[2])
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
         from core.wordpress import update_article_status
         success = update_article_status(post_id, "publish")
         
         if success:
+            logger.info(f"{admin_identifier} published WordPress article #{post_id}.")
             try:
                 await query.edit_message_text(text=f"{query.message.text}\n\n✅ ARTICOLO PUBBLICATO PUBBLICAMENTE!")
             except:
                 pass
         else:
+            logger.warning(f"{admin_identifier} failed to publish WordPress article #{post_id}.")
             try:
                 await query.edit_message_text(text=f"{query.message.text}\n\n❌ Errore durante la pubblicazione dell'articolo.")
             except:
@@ -440,6 +462,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_full = (max_s is not None) and (booked >= max_s)
 
         if is_full:
+            logger.warning(f"User {query.from_user.id} (@{query.from_user.username}) attempted to book full event #{event_id}.")
             try:
                 await query.answer("I posti per questo tavolo sono esauriti!", show_alert=True)
             except Exception:
@@ -458,6 +481,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("manage_subs_"):
         await query.answer()
         event_id = int(data.split("_")[2])
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} opened subscribers management panel for event #{event_id}.")
         event = get_event(event_id)
         if not event:
             await query.answer("Evento non trovato.", show_alert=True)
@@ -488,10 +514,15 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         event_id = int(parts[2])
         res_id = int(parts[3])
         res = get_reservation(res_id)
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
         ok, msg = admin_add_seat(event_id, res_id)
         if not ok:
+            logger.warning(f"{admin_identifier} failed to increment seat for reservation #{res_id} in event #{event_id}: {msg}")
             await query.answer(msg, show_alert=True)
         else:
+            target_desc = f"user {res.get('username') or res.get('user_id')}" if res else f"reservation #{res_id}"
+            logger.info(f"{admin_identifier} incremented seat for {target_desc} in event #{event_id}.")
             await query.answer(msg)
             await update_event_messages(context, event_id)
             event = get_event(event_id)
@@ -519,10 +550,15 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         event_id = int(parts[2])
         res_id = int(parts[3])
         res = get_reservation(res_id)
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
         ok, msg = admin_remove_seat(event_id, res_id)
         if not ok:
+            logger.warning(f"{admin_identifier} failed to decrement seat for reservation #{res_id} in event #{event_id}: {msg}")
             await query.answer(msg, show_alert=True)
         else:
+            target_desc = f"user {res.get('username') or res.get('user_id')}" if res else f"reservation #{res_id}"
+            logger.info(f"{admin_identifier} decremented seat for {target_desc} in event #{event_id}.")
             await query.answer(msg)
             await update_event_messages(context, event_id)
             event = get_event(event_id)
@@ -548,6 +584,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("sub_addnew_"):
         await query.answer()
         event_id = int(data.split("_")[2])
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} opened add-subscriber prompt for event #{event_id}.")
         from telegram import ForceReply
         await context.bot.send_message(
             chat_id=query.message.chat_id,
@@ -558,6 +597,9 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("close_subs_"):
         await query.answer("Chiuso.")
+        admin_user = query.from_user
+        admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if admin_user.username else f"Admin {admin_user.id}"
+        logger.info(f"{admin_identifier} closed subscribers management panel.")
         try:
             await query.message.delete()
         except Exception:

@@ -65,6 +65,7 @@ def parse_event_message(message_text):
     {message_text}
     """
     try:
+        logger.info("AI Parser: Sending message to Gemini for event extraction...")
         model = genai.GenerativeModel(GEMINI_MODEL)
         response = model.generate_content(prompt)
         text = response.text.strip()
@@ -102,6 +103,9 @@ def parse_event_message(message_text):
                         data['seats'] = "0/0 Completo"
                     else:
                         data['seats'] = f"{val}/{val}"
+            logger.info(f"AI Parser: Successfully parsed event '{data.get('title')}' for date '{data.get('date')}'.")
+        elif isinstance(data, dict) and data.get("is_event") is False:
+            logger.info("AI Parser: Message identified as non-event (is_event=False).")
                         
         return data
     except Exception as e:
@@ -138,8 +142,10 @@ def generate_wordpress_article(recap_text, event_list):
     Return the response as HTML (just the content to put in the post body, no <html> or <body> tags).
     """
     try:
+        logger.info("AI Parser: Requesting WordPress article generation from Gemini...")
         model = genai.GenerativeModel(GEMINI_MODEL)
         response = model.generate_content(prompt)
+        logger.info("AI Parser: Successfully generated WordPress article content.")
         return response.text.strip()
     except Exception as e:
         logger.error(f"Error generating WP article with AI: {e}")

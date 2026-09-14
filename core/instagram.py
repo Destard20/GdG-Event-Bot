@@ -10,6 +10,8 @@ async def publish_instagram_story(image_url):
         logger.warning("Instagram credentials not fully configured.")
         return False, "Credenziali Instagram non configurate."
 
+    logger.info(f"Instagram: Starting story publication for image '{image_url}'...")
+
     # 1. Create Media Container
     container_url = f"https://graph.facebook.com/v20.0/{IG_ACCOUNT_ID}/media"
     container_payload = {

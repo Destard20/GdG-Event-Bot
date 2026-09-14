@@ -33,7 +33,9 @@ async def bot_pause_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         return
     is_bot_paused = True
-    logger.info("Bot execution paused by admin.")
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+    logger.info(f"{admin_identifier} paused bot execution.")
     await update.message.reply_text("🔴 **Bot in pausa!**\nIl bot ora ignorerà tutti i messaggi inviati sul canale eventi.", parse_mode="Markdown")
 
 async def bot_resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -41,12 +43,17 @@ async def bot_resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         return
     is_bot_paused = False
-    logger.info("Bot execution resumed by admin.")
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+    logger.info(f"{admin_identifier} resumed bot execution.")
     await update.message.reply_text("🟢 **Bot riattivato!**\nIl bot ricomincerà a monitorare il canale eventi.", parse_mode="Markdown")
 
 async def bot_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         return
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+    logger.info(f"{admin_identifier} requested bot status.")
     status = "🔴 IN PAUSA (monitoraggio canale eventi disattivato)" if is_bot_paused else "🟢 ATTIVO (monitoraggio canale eventi funzionante)"
     await update.message.reply_text(f"Stato del bot: {status}")
 
@@ -366,6 +373,10 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("Non sei autorizzato.")
         return
 
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+    logger.info(f"{admin_identifier} manually triggered event processing (/event_process).")
+
     # User might reply to a message or send text with it
     if update.message.reply_to_message:
         target_msg = update.message.reply_to_message
@@ -536,7 +547,10 @@ async def manual_recap_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
         return
     
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
     args = context.args
+    logger.info(f"{admin_identifier} triggered manual recap (args={args}).")
     date_str = None
     if args:
         parsed = parse_user_date(args[0])
@@ -901,9 +915,15 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         success = update_event_field(event_id, field, value)
 
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+
     if not success:
+        logger.warning(f"{admin_identifier} failed to update field '{field}' to '{value}' for event #{event_id}.")
         await update.message.reply_text("Errore durante l'aggiornamento del database.")
         return
+
+    logger.info(f"{admin_identifier} successfully updated field '{field}' to '{value}' for event #{event_id}.")
         
     # Reload event
     event = get_event(event_id)
@@ -987,8 +1007,11 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except ValueError:
             seats = 1
 
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
     ok, msg = admin_add_subscriber(event_id, username, seats=seats)
     if ok:
+        logger.info(f"{admin_identifier} added subscriber {username} ({seats} seats) to event #{event_id} via reply.")
         await update_event_messages(context, event_id)
         event = get_event(event_id)
         await send_admin_action_notice(
@@ -1001,6 +1024,7 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         await update.message.reply_text(f"✅ {msg}")
     else:
+        logger.warning(f"{admin_identifier} failed to add subscriber {username} to event #{event_id} via reply: {msg}")
         await update.message.reply_text(f"❌ {msg}")
 
 async def event_sub_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1050,8 +1074,11 @@ async def event_sub_add_command(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("I posti devono essere un numero intero.")
                 return
 
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
     ok, msg = admin_add_subscriber(event_id, username, seats=seats)
     if ok:
+        logger.info(f"{admin_identifier} added subscriber {username} ({seats} seats) to event #{event_id} via /event_sub_add.")
         await update_event_messages(context, event_id)
         event = get_event(event_id)
         await send_admin_action_notice(
@@ -1064,6 +1091,7 @@ async def event_sub_add_command(update: Update, context: ContextTypes.DEFAULT_TY
         )
         await update.message.reply_text(f"✅ {msg}")
     else:
+        logger.warning(f"{admin_identifier} failed to add subscriber {username} to event #{event_id} via /event_sub_add: {msg}")
         await update.message.reply_text(f"❌ {msg}")
 
 async def event_sub_remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1120,8 +1148,11 @@ async def event_sub_remove_command(update: Update, context: ContextTypes.DEFAULT
     if seats_to_remove is None:
         seats_to_remove = 1
 
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
     ok, msg = admin_remove_subscriber(event_id, username, seats=seats)
     if ok:
+        logger.info(f"{admin_identifier} removed subscriber {username} ({seats_to_remove} seats) from event #{event_id} via /event_sub_remove.")
         await update_event_messages(context, event_id)
         event = get_event(event_id)
         await send_admin_action_notice(
@@ -1136,5 +1167,6 @@ async def event_sub_remove_command(update: Update, context: ContextTypes.DEFAULT
         )
         await update.message.reply_text(f"✅ {msg}")
     else:
+        logger.warning(f"{admin_identifier} failed to remove subscriber {username} from event #{event_id} via /event_sub_remove: {msg}")
         await update.message.reply_text(f"❌ {msg}")
 

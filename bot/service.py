@@ -255,6 +255,11 @@ async def send_conflict_warning(
 async def handle_seat_booking(event_id, user, query, context):
     clean_username, clean_fullname = get_user_display_name_and_username(user)
     success, msg = book_seat(event_id, user.id, username=clean_username, full_name=clean_fullname)
+    user_identifier = f"User {user.id} (@{clean_username})" if clean_username else f"User {user.id} ({clean_fullname or 'no-name'})"
+    if success:
+        logger.info(f"{user_identifier} successfully booked a seat for event #{event_id}.")
+    else:
+        logger.warning(f"{user_identifier} failed to book a seat for event #{event_id}: {msg}")
     try:
         await query.answer(msg, show_alert=not success)
     except Exception as e:
@@ -327,6 +332,11 @@ async def handle_seat_booking(event_id, user, query, context):
 async def handle_seat_unbooking(event_id, user, query, context):
     username = getattr(user, 'username', None)
     success, msg = unbook_seat(event_id, user.id, username=username)
+    user_identifier = f"User {user.id} (@{username})" if username else f"User {user.id} ({getattr(user, 'first_name', None) or 'no-name'})"
+    if success:
+        logger.info(f"{user_identifier} successfully unbooked a seat for event #{event_id}.")
+    else:
+        logger.warning(f"{user_identifier} failed to unbook a seat for event #{event_id}: {msg}")
     try:
         await query.answer(msg, show_alert=not success)
     except Exception as e:
