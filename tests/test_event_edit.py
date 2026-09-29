@@ -610,6 +610,45 @@ class TestEventEditImageAndDiscard(unittest.IsolatedAsyncioTestCase):
         # event_process (1), ep (1), 10 edit_cmds (10), CaptionRegex event_edit_ (1), CaptionRegex ep (1), cache_admin_media_group (1)
         self.assertGreaterEqual(matched, 15)
 
+    async def test_post_init_sets_bot_commands(self):
+        from main import post_init
+        from telegram import BotCommandScopeDefault, BotCommandScopeChat
+
+        mock_bot = MagicMock()
+        mock_bot.set_my_commands = AsyncMock()
+        mock_app = MagicMock()
+        mock_app.bot = mock_bot
+
+        with patch("core.scheduler.start_scheduler"), \
+             patch("main.ADMIN_CHAT_ID", "-100123456"):
+            await post_init(mock_app)
+
+        self.assertEqual(mock_bot.set_my_commands.call_count, 2)
+
+        # Check call 1: Default scope
+        call1 = mock_bot.set_my_commands.call_args_list[0]
+        cmds1, kwargs1 = call1[0][0], call1[1]
+        self.assertIsInstance(kwargs1.get("scope"), BotCommandScopeDefault)
+        self.assertTrue(any(c.command == "start" for c in cmds1))
+
+        # Check call 2: Admin Chat scope
+        call2 = mock_bot.set_my_commands.call_args_list[1]
+        cmds2, kwargs2 = call2[0][0], call2[1]
+        self.assertIsInstance(kwargs2.get("scope"), BotCommandScopeChat)
+        self.assertEqual(kwargs2["scope"].chat_id, -100123456)
+        cmd_names = [c.command for c in cmds2]
+        self.assertIn("event_parse", cmd_names)
+        self.assertIn("event_next", cmd_names)
+        self.assertIn("event_edit_title", cmd_names)
+        self.assertIn("event_edit_date", cmd_names)
+        self.assertNotIn("event_edit_normalized_date", cmd_names)
+
+        # Check syntax in description
+        title_cmd = next(c for c in cmds2 if c.command == "event_edit_title")
+        self.assertIn("<Titolo>", title_cmd.description)
+        date_cmd = next(c for c in cmds2 if c.command == "event_edit_date")
+        self.assertIn("<DD-MM-YYYY HH:MM>", date_cmd.description)
+
 
 
 class TestEventNextCommand(unittest.IsolatedAsyncioTestCase):

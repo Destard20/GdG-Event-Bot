@@ -150,7 +150,6 @@ python3 main.py
 In `ADMIN_CHAT_ID`, reply to any event announcement message (pending or already published) to update fields live in SQLite and edit the message in the channel:
 - `/event_edit_title <Titolo>`
 - `/event_edit_date <DD-MM-YYYY [HH:MM] o DD/MM/YYYY [HH:MM]>` (calcola automaticamente il giorno della settimana in italiano e sincronizza sia `date` che `normalized_date`)
-- `/event_edit_normalized_date <DD-MM-YYYY>`
 - `/event_edit_system <Sistema/Gioco>`
 - `/event_edit_host <Master o Host>`
 - `/event_edit_type <rpg o boardgame>` (cambia la tipologia dell'evento tra Gioco di Ruolo con 'Master' o Gioco da Tavolo con 'Host')

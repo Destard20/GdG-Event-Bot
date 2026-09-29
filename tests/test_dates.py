@@ -227,36 +227,6 @@ class TestDateEditingAndValidation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ev["normalized_date"], "05-09-2026")
         reply_msg.edit_text.assert_called_once()
 
-    async def test_event_edit_normalized_date_command(self):
-        update = MagicMock()
-        update.effective_chat.id = 999
-        reply_msg = MagicMock()
-        reply_msg.reply_markup.inline_keyboard = [
-            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
-        ]
-        reply_msg.caption = None
-        reply_msg.text = "Event caption"
-        reply_msg.photo = False
-        reply_msg.edit_text = AsyncMock()
-        update.message.reply_to_message = reply_msg
-        update.message.reply_text = AsyncMock()
-        update.message.text = "/event_edit_normalized_date 06-09-2026"
-        context = MagicMock()
-
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.update_event_messages", AsyncMock()):
-            await event_edit_command(update, context)
-
-        ev = db.get_event(self.event_id)
-        self.assertEqual(ev["normalized_date"], "06-09-2026")
-
-        # Invalid format
-        update.message.reply_text.reset_mock()
-        update.message.text = "/event_edit_normalized_date invalid"
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
-            await event_edit_command(update, context)
-        self.assertIn("Formato data normalizzata non valido", update.message.reply_text.call_args[0][0])
-
     async def test_event_edit_date_moves_image_and_updates_db(self):
         old_dir = os.path.join(self.temp_dir.name, "2026", "09", "04")
         os.makedirs(old_dir, exist_ok=True)
@@ -288,42 +258,6 @@ class TestDateEditingAndValidation(unittest.IsolatedAsyncioTestCase):
 
         ev = db.get_event(self.event_id)
         expected_new_path = os.path.join(self.temp_dir.name, "2026", "09", "09", "event_test_1.jpg")
-        self.assertEqual(ev["image_path"], expected_new_path)
-        self.assertTrue(os.path.exists(expected_new_path))
-        self.assertFalse(os.path.exists(img_file))
-        self.assertFalse(os.path.exists(old_dir))
-
-    async def test_event_edit_normalized_date_moves_image_and_updates_db(self):
-        old_dir = os.path.join(self.temp_dir.name, "2026", "09", "04")
-        os.makedirs(old_dir, exist_ok=True)
-        img_file = os.path.join(old_dir, "event_test_2.jpg")
-        with open(img_file, "wb") as f:
-            f.write(b"test image data 2")
-
-        db.update_event_field(self.event_id, "image_path", img_file)
-
-        update = MagicMock()
-        update.effective_chat.id = 999
-        reply_msg = MagicMock()
-        reply_msg.reply_markup.inline_keyboard = [
-            [MagicMock(callback_data=f"publish_event_{self.event_id}")]
-        ]
-        reply_msg.caption = None
-        reply_msg.text = "Event caption"
-        reply_msg.photo = False
-        reply_msg.edit_text = AsyncMock()
-        update.message.reply_to_message = reply_msg
-        update.message.reply_text = AsyncMock()
-        update.message.text = "/event_edit_normalized_date 12-09-2026"
-        context = MagicMock()
-
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.DATA_DIR", self.temp_dir.name), \
-             patch("bot.handlers.update_event_messages", AsyncMock()):
-            await event_edit_command(update, context)
-
-        ev = db.get_event(self.event_id)
-        expected_new_path = os.path.join(self.temp_dir.name, "2026", "09", "12", "event_test_2.jpg")
         self.assertEqual(ev["image_path"], expected_new_path)
         self.assertTrue(os.path.exists(expected_new_path))
         self.assertFalse(os.path.exists(img_file))

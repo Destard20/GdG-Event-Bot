@@ -1,6 +1,6 @@
 import os
 import logging
-from telegram import Update
+from telegram import Update, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from telegram.error import NetworkError
 from telegram.ext import ContextTypes
 
@@ -40,6 +40,48 @@ logger = logging.getLogger(__name__)
 async def post_init(application: Application):
     from core.scheduler import start_scheduler
     start_scheduler(application.bot)
+
+    # Default commands for users in private chats / groups
+    default_commands = [
+        BotCommand("start", "Avvia il bot e visualizza info o iscritti"),
+    ]
+
+    # Admin commands available in ADMIN_CHAT_ID with syntax descriptions
+    admin_commands = [
+        BotCommand("event_parse", "<testo o foto> Analizza e crea bozza evento"),
+        BotCommand("event_process", "<testo o foto> Analizza e crea bozza evento"),
+        BotCommand("ep", "<testo o foto> Analizza e crea bozza evento"),
+        BotCommand("event_next", "Mostra gli eventi di oggi e futuri con link rapidi"),
+        BotCommand("recap_generate", "[DD-MM-YYYY] Genera recap giornaliero (/rg)"),
+        BotCommand("rg", "[DD-MM-YYYY] Genera recap giornaliero"),
+        BotCommand("bot_pause", "Mette in pausa l'intercettazione automatica"),
+        BotCommand("resume", "Riattiva l'intercettazione automatica"),
+        BotCommand("bot_status", "Mostra lo stato operativo del bot"),
+        BotCommand("event_edit_title", "<Titolo> Modifica il titolo dell'evento"),
+        BotCommand("event_edit_date", "<DD-MM-YYYY HH:MM> Modifica data e ora"),
+        BotCommand("event_edit_system", "<Sistema> Modifica il sistema/gioco"),
+        BotCommand("event_edit_host", "<Nome> Modifica Master o Host"),
+        BotCommand("event_edit_type", "<rpg|boardgame> Imposta tipo tavolo"),
+        BotCommand("event_edit_seats", "<X/Y> Modifica posti disponibili/totali"),
+        BotCommand("event_edit_booked", "<N> Modifica posti già prenotati"),
+        BotCommand("event_edit_extra", "<Note> Modifica dettagli/note extra"),
+        BotCommand("event_edit_description", "<Testo> Modifica la descrizione"),
+        BotCommand("event_edit_image", "[ID] Allega nuova foto per la locandina"),
+        BotCommand("event_sub_add", "<ID> @username [posti] Aggiunge iscritto"),
+        BotCommand("event_sub_remove", "<ID> @username [posti] Rimuove iscritto"),
+    ]
+
+    try:
+        await application.bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
+        if ADMIN_CHAT_ID:
+            admin_target = int(ADMIN_CHAT_ID) if str(ADMIN_CHAT_ID).lstrip("-").isdigit() else str(ADMIN_CHAT_ID)
+            await application.bot.set_my_commands(
+                admin_commands + default_commands,
+                scope=BotCommandScopeChat(chat_id=admin_target)
+            )
+            logger.info("Comandi bot registrati con successo tramite API (Default + Admin Chat).")
+    except Exception as e:
+        logger.error(f"Errore durante l'impostazione dei comandi bot via API: {e}")
 
 async def post_shutdown(application: Application):
     from core.scheduler import stop_scheduler
@@ -83,7 +125,7 @@ def main():
     application.add_handler(CommandHandler("bot_status", bot_status_command))
     
     edit_cmds = [
-        "event_edit_title", "event_edit_date", "event_edit_normalized_date",
+        "event_edit_title", "event_edit_date",
         "event_edit_system", "event_edit_seats", "event_edit_booked",
         "event_edit_host", "event_edit_extra", "event_edit_description",
         "event_edit_image", "event_edit_type"
