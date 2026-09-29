@@ -637,7 +637,6 @@ class TestEventEditImageAndDiscard(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(kwargs2.get("scope"), BotCommandScopeChat)
         self.assertEqual(kwargs2["scope"].chat_id, -100123456)
         cmd_names = [c.command for c in cmds2]
-        self.assertIn("event_parse", cmd_names)
         self.assertIn("event_next", cmd_names)
         self.assertIn("event_edit_title", cmd_names)
         self.assertIn("event_edit_date", cmd_names)

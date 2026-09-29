@@ -48,7 +48,6 @@ async def post_init(application: Application):
 
     # Admin commands available in ADMIN_CHAT_ID with syntax descriptions
     admin_commands = [
-        BotCommand("event_parse", "<testo o foto> Analizza e crea bozza evento"),
         BotCommand("event_process", "<testo o foto> Analizza e crea bozza evento"),
         BotCommand("ep", "<testo o foto> Analizza e crea bozza evento"),
         BotCommand("event_next", "Mostra gli eventi di oggi e futuri con link rapidi"),
@@ -116,7 +115,6 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("event_process", manual_trigger_command, block=False))
     application.add_handler(CommandHandler("ep", manual_trigger_command, block=False))
-    application.add_handler(CommandHandler("event_parse", manual_trigger_command, block=False))
     application.add_handler(CommandHandler("event_next", event_next_command))
     application.add_handler(CommandHandler("recap_generate", manual_recap_command))
     application.add_handler(CommandHandler("rg", manual_recap_command))
@@ -137,7 +135,7 @@ def main():
 
     # Caption command handlers (PTB CommandHandler only matches message.text, not message.caption)
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_edit_"), event_edit_command, block=False))
-    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_process|ep|event_parse)(\s|$|@)"), manual_trigger_command, block=False))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_process|ep)(\s|$|@)"), manual_trigger_command, block=False))
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(recap_generate|rg)(\s|$|@)"), manual_recap_command))
     
     # Listen to admin chat for prompt replies and album photos caching
