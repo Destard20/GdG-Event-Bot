@@ -6,8 +6,7 @@ def get_approval_keyboard(event_id):
     keyboard = [
         [
             InlineKeyboardButton("Publish", callback_data=f"publish_event_{event_id}"),
-            InlineKeyboardButton("Discard", callback_data=f"discard_event_{event_id}"),
-            InlineKeyboardButton("Cancel", callback_data=f"cancel_event_{event_id}")
+            InlineKeyboardButton("Discard", callback_data=f"discard_event_{event_id}")
         ],
         [
             InlineKeyboardButton("👥 Gestisci Iscritti", callback_data=f"manage_subs_{event_id}")

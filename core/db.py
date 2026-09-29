@@ -35,7 +35,8 @@ def init_db():
                     discussion_chat_id TEXT,
                     wp_post_id INTEGER,
                     wp_post_url TEXT,
-                    is_roleplay INTEGER DEFAULT 0
+                    is_roleplay INTEGER DEFAULT 0,
+                    admin_message_id INTEGER
                 )
             ''')
             cursor.execute('''
@@ -59,6 +60,8 @@ def init_db():
                 cursor.execute("ALTER TABLE events ADD COLUMN discussion_chat_id TEXT")
             if 'is_roleplay' not in columns:
                 cursor.execute("ALTER TABLE events ADD COLUMN is_roleplay INTEGER DEFAULT 0")
+            if 'admin_message_id' not in columns:
+                cursor.execute("ALTER TABLE events ADD COLUMN admin_message_id INTEGER")
             cursor.execute("PRAGMA table_info(reservations)")
             res_columns = [col[1] for col in cursor.fetchall()]
             if 'full_name' not in res_columns:
@@ -117,7 +120,8 @@ def update_event_field(event_id, field, value):
     allowed_fields = [
         'title', 'date', 'normalized_date', 'system', 'host',
         'seats', 'booked_seats', 'max_seats', 'description', 'extra_info',
-        'discussion_message_id', 'discussion_chat_id', 'image_path', 'is_roleplay'
+        'discussion_message_id', 'discussion_chat_id', 'image_path', 'is_roleplay',
+        'admin_message_id'
     ]
     if field not in allowed_fields:
         return False
@@ -685,4 +689,75 @@ def get_event_by_discussion_message_id(message_id):
     except Exception as e:
         logger.error(f"Error getting event by discussion message id: {e}")
         return None
+
+def get_event_by_admin_message_id(message_id):
+    try:
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM events WHERE admin_message_id = ?', (message_id,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+    except Exception as e:
+        logger.error(f"Error getting event by admin message id: {e}")
+        return None
+
+def get_approved_events_for_date(date_str):
+    """
+    Returns all events with status 'approved' whose date matches target date_str.
+    """
+    try:
+        target_tuple = parse_date_tuple(date_str)
+        if not target_tuple:
+            return []
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM events WHERE status = "approved"')
+            rows = [dict(row) for row in cursor.fetchall()]
+            return [
+                row for row in rows
+                if parse_date_tuple(row.get('normalized_date')) == target_tuple
+                or parse_date_tuple(row.get('date')) == target_tuple
+            ]
+    except Exception as e:
+        logger.error(f"Error getting approved events for date {date_str}: {e}")
+        return []
+
+def get_upcoming_events(include_today=True):
+    """
+    Returns all approved and pending events occurring today or in the future,
+    sorted chronologically by event date.
+    """
+    try:
+        from datetime import datetime
+        now_dt = datetime.now()
+        today_tuple = (now_dt.year, now_dt.month, now_dt.day)
+
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM events WHERE status IN ("approved", "pending")')
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        upcoming = []
+        undated = []
+        for ev in rows:
+            d_tuple = parse_date_tuple(ev.get('normalized_date')) or parse_date_tuple(ev.get('date'))
+            if d_tuple:
+                if include_today and d_tuple >= today_tuple:
+                    upcoming.append((d_tuple, ev))
+                elif not include_today and d_tuple > today_tuple:
+                    upcoming.append((d_tuple, ev))
+            else:
+                undated.append(((9999, 99, 99), ev))
+
+        upcoming.sort(key=lambda x: (x[0], x[1].get('id', 0)))
+        return [item[1] for item in upcoming] + [item[1] for item in undated]
+    except Exception as e:
+        logger.error(f"Error getting upcoming events: {e}")
+        return []
+
 

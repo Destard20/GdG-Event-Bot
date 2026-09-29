@@ -13,9 +13,9 @@ from core.db import init_db
 from bot.handlers import (
     process_message, manual_trigger_command, manual_recap_command, 
     handle_discussion_forward, event_edit_command, bot_pause_command, 
-    bot_resume_command, bot_status_command, event_sub_add_command,
-    event_sub_remove_command, handle_admin_reply, cache_admin_media_group,
-    start_command
+    bot_resume_command, bot_status_command, event_next_command,
+    event_sub_add_command, event_sub_remove_command, handle_admin_reply,
+    cache_admin_media_group, start_command
 )
 from bot.callbacks import handle_approval
 from core.scheduler import start_scheduler
@@ -74,6 +74,8 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("event_process", manual_trigger_command, block=False))
     application.add_handler(CommandHandler("ep", manual_trigger_command, block=False))
+    application.add_handler(CommandHandler("event_parse", manual_trigger_command, block=False))
+    application.add_handler(CommandHandler("event_next", event_next_command))
     application.add_handler(CommandHandler("recap_generate", manual_recap_command))
     application.add_handler(CommandHandler("rg", manual_recap_command))
     application.add_handler(CommandHandler("bot_pause", bot_pause_command))
@@ -93,7 +95,7 @@ def main():
 
     # Caption command handlers (PTB CommandHandler only matches message.text, not message.caption)
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_edit_"), event_edit_command, block=False))
-    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_process|ep)(\s|$|@)"), manual_trigger_command, block=False))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_process|ep|event_parse)(\s|$|@)"), manual_trigger_command, block=False))
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(recap_generate|rg)(\s|$|@)"), manual_recap_command))
     
     # Listen to admin chat for prompt replies and album photos caching

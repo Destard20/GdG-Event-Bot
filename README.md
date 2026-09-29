@@ -128,7 +128,7 @@ python3 main.py
 - **Deferred Auto-Interception:** The bot parses the content via Gemini AI first. If confirmed as an event, it deletes the raw post from the public channel and routes it to admin review; if it is not an event, it is preserved in the channel.
 - **Admin Review:** The parsed event is forwarded to `ADMIN_CHAT_ID` with buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
 - **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenota] [👥 Lista] [➖ Annulla]` to the public channel and generates the Instagram Story graphic locally.
-- **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process` (or shortcut `/ep`).
+- **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process` (or shortcuts `/ep`, `/event_parse`).
 
 ### 2. Live Seat Booking & Same-Day Conflict Warnings
 - Users click `[➕ Prenota]` on a channel post or discussion group reply to reserve a seat (or see `[🚫 Esauriti]` if full).
@@ -183,6 +183,7 @@ In `ADMIN_CHAT_ID`:
 - `/bot_pause`: Pauses public channel monitoring (bot becomes "blind" and will not intercept or delete events posted to the channel).
 - `/bot_resume`: Resumes public channel monitoring.
 - `/bot_status`: Checks whether the bot is currently active or paused.
+- `/event_next`: Displays all today's and upcoming events in chronological order, with quick links to the respective admin message and discussion chat.
 
 ---
 

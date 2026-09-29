@@ -180,12 +180,20 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = get_approved_event_keyboard(event_id)
         msg_text = query.message.caption or query.message.text or ""
         new_text = update_status_suffix(msg_text, "\n\n✅ APPROVATO")
+        if query.message.photo and len(new_text) > 1024:
+            new_text = new_text[:1020] + "..."
         
         try:
             if query.message.photo:
-                await query.edit_message_caption(caption=new_text, reply_markup=keyboard)
+                try:
+                    await query.edit_message_caption(caption=new_text, reply_markup=keyboard, parse_mode="HTML")
+                except Exception:
+                    await query.edit_message_caption(caption=new_text, reply_markup=keyboard)
             else:
-                await query.edit_message_text(text=new_text, reply_markup=keyboard)
+                try:
+                    await query.edit_message_text(text=new_text, reply_markup=keyboard, parse_mode="HTML")
+                except Exception:
+                    await query.edit_message_text(text=new_text, reply_markup=keyboard)
         except Exception as e:
             logger.error(f"Error updating admin message on publish: {e}")
             
@@ -217,6 +225,13 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     update_telegram_message_info(event_id, pub_msg.message_id, pub_msg.link)
                 except Exception as e:
                     logger.error(f"Error publishing to public channel: {e}")
+                    try:
+                        await context.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=f"❌ Errore pubblicazione evento #{event_id} sul canale: {e}\nSe la didascalia supera i 1024 caratteri, riduci la descrizione con /event_edit_description e riprova ad approvare."
+                        )
+                    except Exception:
+                        pass
             
             await context.bot.send_message(chat_id=query.message.chat_id, text="⏳ Generazione e pubblicazione Storia Instagram in corso...")
             

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import html
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
 import logging
@@ -8,6 +9,8 @@ from core.ai_parser import parse_event_message, GeminiQuotaError, GEMINI_DEPLETE
 from core.db import (
     insert_event,
     get_event_by_telegram_message_id,
+    get_event_by_admin_message_id,
+    get_upcoming_events,
     update_event_field,
     get_event,
     update_discussion_message_info,
@@ -56,6 +59,80 @@ async def bot_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     logger.info(f"{admin_identifier} requested bot status.")
     status = "🔴 IN PAUSA (monitoraggio canale eventi disattivato)" if is_bot_paused else "🟢 ATTIVO (monitoraggio canale eventi funzionante)"
     await update.message.reply_text(f"Stato del bot: {status}")
+
+async def event_next_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        return
+
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+    logger.info(f"{admin_identifier} requested upcoming events (/event_next).")
+
+    events = get_upcoming_events(include_today=True)
+
+    if not events:
+        await update.message.reply_text("Nessun evento in programma per oggi o per i prossimi giorni.")
+        return
+
+    header = "📅 <b>Eventi di oggi e prossimi in programma:</b>\n\n"
+    formatted_entries = []
+
+    for ev in events:
+        ev_id = ev['id']
+        raw_title = ev.get('title') or 'Senza Titolo'
+        escaped_title = html.escape(raw_title)
+        raw_date = ev.get('date') or ev.get('normalized_date') or 'N/A'
+        escaped_date = html.escape(raw_date)
+
+        status_suffix = ""
+        if ev.get('status') == 'pending':
+            status_suffix = " <i>[In attesa di approvazione]</i>"
+        elif ev.get('status') == 'cancelled':
+            status_suffix = " ❌ <i>[ANNULLATO]</i>"
+
+        links = []
+        # Admin message link
+        if ev.get('admin_message_id'):
+            admin_chat_str = str(ADMIN_CHAT_ID)
+            if admin_chat_str.startswith("-100"):
+                clean_admin_id = admin_chat_str[4:]
+                links.append(f'<a href="https://t.me/c/{clean_admin_id}/{ev["admin_message_id"]}">Admin</a>')
+            else:
+                links.append(f'Admin msg #{ev["admin_message_id"]}')
+
+        # Discussion chat link
+        disc_msg_id = ev.get('discussion_message_id')
+        disc_chat_str = str(ev.get('discussion_chat_id') or DISCUSSION_GROUP_ID or '')
+        if disc_msg_id and disc_chat_str:
+            if disc_chat_str.startswith("-100"):
+                clean_disc_id = disc_chat_str[4:]
+                links.append(f'<a href="https://t.me/c/{clean_disc_id}/{disc_msg_id}">Chat Discussione</a>')
+            else:
+                links.append(f'Chat msg #{disc_msg_id}')
+
+        # Public channel link
+        if ev.get('message_link'):
+            links.append(f'<a href="{ev["message_link"]}">Canale Eventi</a>')
+
+        links_str = " | ".join(links) if links else "Nessun link disponibile"
+
+        entry = (
+            f"• <b>{escaped_title}</b> (#{ev_id}){status_suffix}\n"
+            f"  🗓️ Data: {escaped_date}\n"
+            f"  🔗 {links_str}\n"
+        )
+        formatted_entries.append(entry)
+
+    chunk = header
+    for entry in formatted_entries:
+        if len(chunk) + len(entry) > 3800:
+            await update.message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+            chunk = ""
+        chunk += entry + "\n"
+
+    if chunk.strip():
+        await update.message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
@@ -523,23 +600,46 @@ async def handle_event_extraction(text, image_bytes, context, message_link=None,
             logger.error(f"Error sending original text to admin: {e}")
         
     # Send for approval
-    story_text = format_instagram_story(event_data)
+    final_text = format_public_event_message(event_data)
     keyboard = get_approval_keyboard(event_id)
     
+    warning_block = ""
     warnings = validate_event_date_anomalies(event_data, raw_text=text)
     if warnings:
-        warning_block = "🚨 ATTENZIONE ANOMALIE DATA:\n" + "\n".join(warnings) + "\n👉 Usa /event_edit_date per correggere prima di approvare.\n\n"
-        story_text = warning_block + story_text
+        warning_block += "🚨 ATTENZIONE ANOMALIE DATA:\n" + "\n".join(warnings) + "\n👉 Usa /event_edit_date per correggere prima di approvare.\n\n"
 
-    caption_text = story_text
-    if image_path and len(caption_text) > 1024:
-        caption_text = caption_text[:1020] + "..."
+    if image_path and len(final_text) > 1024:
+        warning_block = (
+            f"🚨 ATTENZIONE LIMITE CARATTERI:\n"
+            f"⚠️ IL TESTO DELL'EVENTO SUPERA I 1024 CARATTERI ({len(final_text)}/1024)!\n"
+            f"La pubblicazione sul canale fallirà. Riduci la descrizione con /event_edit_description prima di approvare.\n\n"
+        ) + warning_block
 
+    display_text = warning_block + final_text
+
+    admin_msg = None
     if image_path:
         with open(image_path, 'rb') as f:
-            await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=caption_text, reply_markup=keyboard)
+            if len(display_text) <= 1024:
+                try:
+                    admin_msg = await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=display_text, reply_markup=keyboard, parse_mode="HTML")
+                except Exception as e:
+                    logger.warning(f"Error sending admin preview with HTML: {e}")
+                    admin_msg = await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=display_text, reply_markup=keyboard)
+            else:
+                truncated = display_text[:1020] + "..."
+                try:
+                    admin_msg = await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=truncated, reply_markup=keyboard, parse_mode="HTML")
+                except Exception:
+                    admin_msg = await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=truncated, reply_markup=keyboard)
     else:
-        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=story_text, reply_markup=keyboard)
+        try:
+            admin_msg = await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=display_text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception:
+            admin_msg = await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=display_text, reply_markup=keyboard)
+
+    if admin_msg:
+        update_event_field(event_id, "admin_message_id", admin_msg.message_id)
 
     return True
 
@@ -686,12 +786,15 @@ def extract_event_id_from_reply(reply_msg):
         m = re.search(r"(?:evento\s*)?#(\d+)", raw_content, re.IGNORECASE)
         if m:
             return int(m.group(1))
-    # 3. Check DB telegram_message_id
+    # 3. Check DB telegram_message_id or admin_message_id
     msg_id = getattr(reply_msg, "message_id", None)
     if isinstance(msg_id, int):
         ev = get_event_by_telegram_message_id(msg_id)
         if ev:
             return ev['id']
+        ev_admin = get_event_by_admin_message_id(msg_id)
+        if ev_admin:
+            return ev_admin['id']
     return None
 
 async def _extract_image_bytes_from_update(update: Update):
@@ -933,13 +1036,20 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Update admin message
     if target_msg:
-        story_text = format_instagram_story(event)
+        final_text = format_public_event_message(event)
         
+        warning_block = ""
         if event.get('status') == 'pending':
             warnings = validate_event_date_anomalies(event)
             if warnings:
-                warning_block = "🚨 ATTENZIONE ANOMALIE DATA:\n" + "\n".join(warnings) + "\n👉 Usa /event_edit_date per correggere prima di approvare.\n\n"
-                story_text = warning_block + story_text
+                warning_block += "🚨 ATTENZIONE ANOMALIE DATA:\n" + "\n".join(warnings) + "\n👉 Usa /event_edit_date per correggere prima di approvare.\n\n"
+
+        if getattr(target_msg, "photo", None) and len(final_text) > 1024:
+            warning_block = (
+                f"🚨 ATTENZIONE LIMITE CARATTERI:\n"
+                f"⚠️ IL TESTO DELL'EVENTO SUPERA I 1024 CARATTERI ({len(final_text)}/1024)!\n"
+                f"La pubblicazione sul canale fallirà. Riduci la descrizione con /event_edit_description prima di approvare.\n\n"
+            ) + warning_block
 
         # Preserve status text and keyboard
         status_text = ""
@@ -952,21 +1062,33 @@ async def event_edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         elif event['status'] == 'cancelled':
             status_text = "\n\n⚠️ ANNULLATO"
             
-        new_text = story_text + status_text
+        new_text = warning_block + final_text + status_text
         if getattr(target_msg, "photo", None) and len(new_text) > 1024:
             new_text = new_text[:1020] + "..."
         
         try:
             if field == "image_path" and getattr(target_msg, "photo", None) and event.get('image_path') and os.path.exists(event['image_path']):
                 with open(event['image_path'], 'rb') as f:
-                    await target_msg.edit_media(
-                        media=InputMediaPhoto(media=f, caption=new_text),
-                        reply_markup=keyboard
-                    )
+                    try:
+                        await target_msg.edit_media(
+                            media=InputMediaPhoto(media=f, caption=new_text, parse_mode="HTML"),
+                            reply_markup=keyboard
+                        )
+                    except Exception:
+                        await target_msg.edit_media(
+                            media=InputMediaPhoto(media=f, caption=new_text),
+                            reply_markup=keyboard
+                        )
             elif getattr(target_msg, "photo", None):
-                await target_msg.edit_caption(caption=new_text, reply_markup=keyboard)
+                try:
+                    await target_msg.edit_caption(caption=new_text, reply_markup=keyboard, parse_mode="HTML")
+                except Exception:
+                    await target_msg.edit_caption(caption=new_text, reply_markup=keyboard)
             else:
-                await target_msg.edit_text(text=new_text, reply_markup=keyboard)
+                try:
+                    await target_msg.edit_text(text=new_text, reply_markup=keyboard, parse_mode="HTML")
+                except Exception:
+                    await target_msg.edit_text(text=new_text, reply_markup=keyboard)
         except Exception as e:
             if "not modified" in str(e).lower() or "message is not modified" in str(e).lower():
                 pass

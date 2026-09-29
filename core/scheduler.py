@@ -7,7 +7,7 @@ from datetime import datetime
 from core.db import get_pending_events_for_recap, mark_events_as_recap
 from utils.image_utils import create_collage
 from utils.templates import recap_generate_text
-from core.config import ADMIN_CHAT_ID, DATA_DIR
+from core.config import ADMIN_CHAT_ID, DATA_DIR, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
 from bot.keyboards import get_recap_approval_keyboard
 from core.ai_parser import generate_wordpress_article
 from core.wordpress import publish_article, upload_media
@@ -85,7 +85,7 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False, reply_to_
     logger.info(f"Scheduler: Daily recap successfully generated and sent to admin for date {date_str} ({len(events)} events).")
     return True
 
-async def archive_today_images():
+async def archive_today_images(bot=None):
     logger.info("Scheduler: Starting archive_today_images job...")
     now = datetime.now()
     year = now.strftime("%Y")
@@ -94,36 +94,73 @@ async def archive_today_images():
 
     target_dir = os.path.join(DATA_DIR, year, month, day)
     if not os.path.exists(target_dir):
-        logger.info(f"Archive: No folder found for today ({target_dir}). Finished.")
-        return
+        logger.info(f"Archive: No folder found for today ({target_dir}).")
+    else:
+        image_extensions = ("*.jpg", "*.jpeg", "*.png", "*.webp")
+        image_files = []
+        for ext in image_extensions:
+            image_files.extend(glob.glob(os.path.join(target_dir, ext)))
 
-    image_extensions = ("*.jpg", "*.jpeg", "*.png", "*.webp")
-    image_files = []
-    for ext in image_extensions:
-        image_files.extend(glob.glob(os.path.join(target_dir, ext)))
+        if not image_files:
+            logger.info(f"Archive: No image files found in {target_dir} to archive.")
+        else:
+            zip_path = os.path.join(target_dir, "archive.zip")
+            logger.info(f"Archive: Zipping {len(image_files)} images into {zip_path}")
 
-    if not image_files:
-        logger.info(f"Archive: No image files found in {target_dir} to archive. Finished.")
-        return
-
-    zip_path = os.path.join(target_dir, "archive.zip")
-    logger.info(f"Archive: Zipping {len(image_files)} images into {zip_path}")
-
-    try:
-        with zipfile.ZipFile(zip_path, 'a', zipfile.ZIP_DEFLATED) as zipf:
-            for img in image_files:
-                arcname = os.path.basename(img)
-                zipf.write(img, arcname)
-
-        for img in image_files:
             try:
-                os.remove(img)
-            except Exception as e:
-                logger.warning(f"Archive: Failed to delete {img}: {e}")
+                with zipfile.ZipFile(zip_path, 'a', zipfile.ZIP_DEFLATED) as zipf:
+                    for img in image_files:
+                        arcname = os.path.basename(img)
+                        zipf.write(img, arcname)
 
-        logger.info(f"Archive: Successfully archived and removed {len(image_files)} images in {target_dir}.")
-    except Exception as e:
-        logger.error(f"Archive: Error creating zip archive in {target_dir}: {e}")
+                for img in image_files:
+                    try:
+                        os.remove(img)
+                    except Exception as e:
+                        logger.warning(f"Archive: Failed to delete {img}: {e}")
+
+                logger.info(f"Archive: Successfully archived and removed {len(image_files)} images in {target_dir}.")
+            except Exception as e:
+                logger.error(f"Archive: Error creating zip archive in {target_dir}: {e}")
+
+    # Disable booking for today's events at 23:59
+    if bot:
+        logger.info("Scheduler: Disabling bookings for today's events...")
+        try:
+            from core.db import get_approved_events_for_date
+
+            today_str = now.strftime("%d-%m-%Y")
+            today_events = get_approved_events_for_date(today_str)
+            for ev in today_events:
+                ev_id = ev['id']
+                # 1. Update public channel message
+                if PUBLIC_CHANNEL_ID and ev.get('telegram_message_id'):
+                    try:
+                        await bot.edit_message_reply_markup(
+                            chat_id=PUBLIC_CHANNEL_ID,
+                            message_id=ev['telegram_message_id'],
+                            reply_markup=None
+                        )
+                        logger.info(f"Scheduler: Removed booking keyboard from public channel for event #{ev_id}.")
+                    except Exception as e:
+                        if "not modified" not in str(e).lower() and "message to edit not found" not in str(e).lower():
+                            logger.error(f"Scheduler: Error removing booking keyboard in public channel for event #{ev_id}: {e}")
+
+                # 2. Update discussion group message
+                disc_chat_id = ev.get('discussion_chat_id') or DISCUSSION_GROUP_ID
+                if disc_chat_id and ev.get('discussion_message_id'):
+                    try:
+                        await bot.edit_message_reply_markup(
+                            chat_id=int(disc_chat_id),
+                            message_id=ev['discussion_message_id'],
+                            reply_markup=None
+                        )
+                        logger.info(f"Scheduler: Removed booking keyboard from discussion group for event #{ev_id}.")
+                    except Exception as e:
+                        if "not modified" not in str(e).lower() and "message to edit not found" not in str(e).lower():
+                            logger.error(f"Scheduler: Error removing booking keyboard in discussion group for event #{ev_id}: {e}")
+        except Exception as e:
+            logger.error(f"Scheduler: Error disabling bookings for today's events: {e}")
 
 async def archive_completed_month_logs():
     logger.info("Scheduler: Starting archive_completed_month_logs job...")
@@ -145,8 +182,8 @@ def start_scheduler(bot):
     scheduler_instance = AsyncIOScheduler()
     # Schedule to run every day at a specific time (e.g., 18:00)
     scheduler_instance.add_job(generate_daily_recap, 'cron', hour=18, minute=0, args=[bot])
-    # Schedule daily image archive at 23:59
-    scheduler_instance.add_job(archive_today_images, 'cron', hour=23, minute=59)
+    # Schedule daily image archive at 23:59 and disable booking for today's events
+    scheduler_instance.add_job(archive_today_images, 'cron', hour=23, minute=59, args=[bot])
     # Schedule check and zipping of ended month logs daily at 00:05
     scheduler_instance.add_job(archive_completed_month_logs, 'cron', hour=0, minute=5)
     scheduler_instance.start()
