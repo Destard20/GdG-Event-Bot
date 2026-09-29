@@ -10,7 +10,7 @@ from bot.handlers import (
     handle_event_extraction,
     manual_recap_command,
 )
-from core.scheduler import generate_daily_recap
+from core.scheduler import generate_daily_recap, archive_today_images
 from utils.date_utils import (
     parse_user_date,
     format_standard_event_date,
@@ -557,6 +557,62 @@ class TestDateEditingAndValidation(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(res)
         bot.send_message.assert_not_called()
+
+    async def test_archive_today_images_disables_booking_for_today_events(self):
+        today_str = datetime.now().strftime("%d-%m-%Y")
+        tomorrow_str = "30-12-2099"
+
+        # Today's approved event with channel and discussion messages
+        ev1_id = db.insert_event({
+            "title": "Evento Oggi",
+            "date": f"Oggi {today_str}",
+            "normalized_date": today_str,
+            "system": "D&D",
+            "host": "Master",
+            "seats": "4/4",
+            "booked_seats": 0,
+            "max_seats": 4,
+            "description": "Descrizione",
+        }, None, "raw 1")
+        db.update_event_status(ev1_id, "approved")
+        db.update_telegram_message_info(ev1_id, 1001, "https://t.me/c/123/1001")
+        db.update_discussion_message_info(ev1_id, 2001, "-100999999")
+
+        # Tomorrow's approved event
+        ev2_id = db.insert_event({
+            "title": "Evento Futuro",
+            "date": f"Domani {tomorrow_str}",
+            "normalized_date": tomorrow_str,
+            "system": "Pathfinder",
+            "host": "Master 2",
+            "seats": "4/4",
+            "booked_seats": 0,
+            "max_seats": 4,
+            "description": "Descrizione",
+        }, None, "raw 2")
+        db.update_event_status(ev2_id, "approved")
+        db.update_telegram_message_info(ev2_id, 1002, "https://t.me/c/123/1002")
+        db.update_discussion_message_info(ev2_id, 2002, "-100999999")
+
+        bot = MagicMock()
+        bot.edit_message_reply_markup = AsyncMock()
+
+        with patch("core.scheduler.PUBLIC_CHANNEL_ID", "-100123456"), \
+             patch("core.scheduler.DISCUSSION_GROUP_ID", "-100999999"):
+            await archive_today_images(bot=bot)
+
+        calls = bot.edit_message_reply_markup.call_args_list
+        edited_msgs = [c.kwargs.get("message_id") for c in calls]
+        self.assertIn(1001, edited_msgs)
+        self.assertIn(2001, edited_msgs)
+        self.assertNotIn(1002, edited_msgs)
+        self.assertNotIn(2002, edited_msgs)
+
+        for c in calls:
+            self.assertIsNone(c.kwargs.get("reply_markup"))
+
+    async def test_archive_today_images_without_bot_succeeds(self):
+        await archive_today_images(bot=None)
 
 
 

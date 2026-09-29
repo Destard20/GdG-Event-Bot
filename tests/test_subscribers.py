@@ -121,6 +121,10 @@ class TestSubscriberManagement(unittest.IsolatedAsyncioTestCase):
         appr_kb = get_approval_keyboard(self.event_id)
         self.assertEqual(len(appr_kb.inline_keyboard), 2)
         self.assertEqual(appr_kb.inline_keyboard[1][0].callback_data, f"manage_subs_{self.event_id}")
+        appr_callbacks = [btn.callback_data for row in appr_kb.inline_keyboard for btn in row]
+        self.assertIn(f"publish_event_{self.event_id}", appr_callbacks)
+        self.assertIn(f"discard_event_{self.event_id}", appr_callbacks)
+        self.assertNotIn(f"cancel_event_{self.event_id}", appr_callbacks)
 
         approved_kb = get_approved_event_keyboard(self.event_id)
         self.assertEqual(approved_kb.inline_keyboard[0][0].callback_data, f"cancel_event_{self.event_id}")

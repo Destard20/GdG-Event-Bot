@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import os
 import tempfile
 import unittest
@@ -446,6 +447,15 @@ class TestEventEditImageAndDiscard(unittest.IsolatedAsyncioTestCase):
         msg_hash.message_id = 9999
         self.assertEqual(extract_event_id_from_reply(msg_hash), 42)
 
+        # 3. DB admin_message_id
+        db.update_event_field(self.event_id, "admin_message_id", 8888)
+        msg_admin = MagicMock()
+        msg_admin.reply_markup = None
+        msg_admin.caption = None
+        msg_admin.text = "Messaggio admin senza riferimenti"
+        msg_admin.message_id = 8888
+        self.assertEqual(extract_event_id_from_reply(msg_admin), self.event_id)
+
     async def test_extract_image_bytes_from_document_mime(self):
         from bot.handlers import _extract_image_bytes_from_update
 
@@ -482,6 +492,91 @@ class TestEventEditImageAndDiscard(unittest.IsolatedAsyncioTestCase):
         ch = CommandHandler("event_edit_image", lambda u, c: None)
         self.assertFalse(ch.check_update(u))
 
+    async def test_handle_event_extraction_uses_final_form_with_emojis(self):
+        from bot.handlers import handle_event_extraction
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        sent_mock = MagicMock()
+        sent_mock.message_id = 777
+        context.bot.send_message.return_value = sent_mock
+
+        parsed_data = {
+            "is_event": True,
+            "title": "Avventura Stellare",
+            "date": "Venerdì 25-12-2026 21:00",
+            "normalized_date": "25-12-2026",
+            "system": "Starfinder",
+            "host": "Capitano",
+            "seats": "5/5",
+            "booked_seats": 0,
+            "max_seats": 5,
+            "description": "Viaggio nello spazio profondo.",
+            "is_roleplay": True,
+        }
+
+        with patch("bot.handlers.parse_event_message", return_value=parsed_data), \
+             patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+            success = await handle_event_extraction(
+                text="Evento Starfinder",
+                image_bytes=None,
+                context=context,
+                is_manual_trigger=True,
+            )
+
+        self.assertTrue(success)
+        context.bot.send_message.assert_called_once()
+        sent_kwargs = context.bot.send_message.call_args.kwargs
+        text = sent_kwargs.get("text", "")
+
+        self.assertIn("📣 <b>Avventura Stellare</b>", text)
+        self.assertIn("🎲 Sistema: Starfinder", text)
+        self.assertIn("👑 Master: Capitano", text)
+        self.assertIn("🪑 Posti: 5/5", text)
+        self.assertEqual(sent_kwargs.get("parse_mode"), "HTML")
+
+        # Verify admin_message_id was stored in DB
+        ev = db.get_event(self.event_id + 1)
+        self.assertEqual(ev.get("admin_message_id"), 777)
+
+    async def test_handle_event_extraction_warns_on_caption_over_1024_chars(self):
+        from bot.handlers import handle_event_extraction
+        context = MagicMock()
+        sent_mock = MagicMock()
+        sent_mock.message_id = 888
+        context.bot.send_photo = AsyncMock(return_value=sent_mock)
+
+        long_desc = "X" * 1100
+        parsed_data = {
+            "is_event": True,
+            "title": "Evento Lunghissimo",
+            "date": "Venerdì 25-12-2026 21:00",
+            "normalized_date": "25-12-2026",
+            "system": "D&D",
+            "host": "Master",
+            "seats": "4/4",
+            "booked_seats": 0,
+            "max_seats": 4,
+            "description": long_desc,
+        }
+
+        with patch("bot.handlers.parse_event_message", return_value=parsed_data), \
+             patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+            success = await handle_event_extraction(
+                text="Evento con testo lunghissimo",
+                image_bytes=b"dummy_image_data",
+                context=context,
+                is_manual_trigger=True,
+            )
+
+        self.assertTrue(success)
+        context.bot.send_photo.assert_called_once()
+        caption = context.bot.send_photo.call_args.kwargs.get("caption", "")
+
+        self.assertIn("🚨 ATTENZIONE LIMITE CARATTERI:", caption)
+        self.assertIn("IL TESTO DELL'EVENTO SUPERA I 1024 CARATTERI", caption)
+        self.assertLessEqual(len(caption), 1024)
+
+
     def test_main_admin_handlers_configured_block_false(self):
         from main import main
         from bot.handlers import event_edit_command, manual_trigger_command, cache_admin_media_group
@@ -515,6 +610,94 @@ class TestEventEditImageAndDiscard(unittest.IsolatedAsyncioTestCase):
         # event_process (1), ep (1), 10 edit_cmds (10), CaptionRegex event_edit_ (1), CaptionRegex ep (1), cache_admin_media_group (1)
         self.assertGreaterEqual(matched, 15)
 
+
+
+class TestEventNextCommand(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.test_db_path = os.path.join(self.temp_dir.name, "test_events.db")
+        self.orig_db_path = db.DB_PATH
+        db.DB_PATH = self.test_db_path
+        db.init_db()
+
+    def tearDown(self):
+        db.DB_PATH = self.orig_db_path
+        self.temp_dir.cleanup()
+
+    async def test_event_next_command_non_admin_ignored(self):
+        from bot.handlers import event_next_command
+        update = MagicMock()
+        update.effective_chat.id = 12345
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "-100999999"):
+            await event_next_command(update, context)
+
+        update.message.reply_text.assert_not_called()
+
+    async def test_event_next_command_no_events(self):
+        from bot.handlers import event_next_command
+        update = MagicMock()
+        update.effective_chat.id = -100999999
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "-100999999"):
+            await event_next_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        self.assertIn("Nessun evento in programma", update.message.reply_text.call_args[0][0])
+
+    async def test_event_next_command_lists_today_and_future_events(self):
+        from bot.handlers import event_next_command
+        today_str = datetime.now().strftime("%d-%m-%Y")
+
+        # 1. Past event (should NOT be included)
+        ev_past_id = db.insert_event({
+            "title": "Evento Passato",
+            "date": "01-01-2020",
+            "normalized_date": "01-01-2020",
+        }, None, "raw past")
+        db.update_event_status(ev_past_id, "approved")
+
+        # 2. Today's event (SHOULD be included)
+        ev_today_id = db.insert_event({
+            "title": "Evento Di Oggi",
+            "date": f"Oggi {today_str} ore 21:00",
+            "normalized_date": today_str,
+        }, None, "raw today")
+        db.update_event_status(ev_today_id, "approved")
+        db.update_event_field(ev_today_id, "admin_message_id", 301)
+        db.update_discussion_message_info(ev_today_id, 401, "-100888888")
+
+        # 3. Future pending event (SHOULD be included)
+        ev_future_id = db.insert_event({
+            "title": "Evento Futuro",
+            "date": "Venerdì 25-12-2099",
+            "normalized_date": "25-12-2099",
+        }, None, "raw future")
+        db.update_event_field(ev_future_id, "admin_message_id", 302)
+
+        update = MagicMock()
+        update.effective_chat.id = -100999999
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "-100999999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100888888"):
+            await event_next_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        reply_text = update.message.reply_text.call_args[0][0]
+
+        self.assertNotIn("Evento Passato", reply_text)
+        self.assertIn("Evento Di Oggi", reply_text)
+        self.assertIn("Evento Futuro", reply_text)
+        self.assertIn("[In attesa di approvazione]", reply_text)
+        self.assertIn('https://t.me/c/999999/301', reply_text)
+        self.assertIn('https://t.me/c/999999/302', reply_text)
+        self.assertIn('https://t.me/c/888888/401', reply_text)
 
 
 if __name__ == "__main__":
