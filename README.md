@@ -28,7 +28,7 @@ This application monitors a Telegram channel, extracts event information using *
 - **Automated Telegram Channel Interception:** Listens to the public announcement channel. When an admin posts a message, the bot parses the content with Gemini AI. If confirmed as a bookable event, the bot deletes the raw post and routes it to an admin review chat; non-event announcements, reminders, and notices are left untouched in the channel.
 - **Interactive Live Booking System & Same-Day Conflict Warnings:** Published events feature inline `[➕ Prenota]`, `[👥 Lista]`, and `[➖ Annulla]` buttons across both the announcement channel and discussion group. Users can reserve or release seats directly in Telegram; message text updates live to reflect remaining availability, and reply notifications are posted automatically. The `[👥 Lista]` button deep-links to a private DM with the bot (`/start subs_{id}`), providing a full roster of participants without generating chat spam. If a user reserves a seat on multiple valid events on the same day, the bot automatically warns them in chat with links to all conflicting events so they can choose which to keep.
 - **Event Cancellation:** Admins can cancel any event at any time using a persistent `[Cancel]` button. Cancelled events update live in the channel and are flagged as `[ANNULLATO]` with zero seats in recaps and graphics.
-- **Daily Recaps & Multi-Image Collages:** Automatically runs at 18:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/recap_generate`. Stitches event artwork into clean collages (wrapped into multiple rows via `MAX_EVENTS_PER_ROW`) without cropping borders.
+- **Daily Recaps & Multi-Image Collages:** Automatically runs at 16:00 on gaming days (Mon, Wed, Fri, Sat, Sun) or on-demand via `/recap_generate`. Stitches event artwork into clean collages (wrapped into multiple rows via `MAX_EVENTS_PER_ROW`) without cropping borders.
 - **Instagram Story Generator:** Programmatically builds 1080x1920 Instagram Story cards for individual events and daily recaps using Pillow (handling top banner artwork, dynamic text wrapping, seat counters, and association location footers).
 - **WordPress REST API Integration:** AI writes an Italian recap article embedding event details, Telegram message links, and individual event pictures (max 400x400). The recap collage is set as the featured image. Posts can be published publicly directly from Telegram.
 
@@ -139,7 +139,7 @@ python3 main.py
 - Users click `[➖ Annulla]` to release reserved seats.
 
 ### 3. Daily Recap Flow
-- Runs automatically at **18:00** on Mondays, Wednesdays, Fridays, Saturdays, and Sundays (silent if no events are scheduled).
+- Runs automatically at **16:00** on Mondays, Wednesdays, Fridays, Saturdays, and Sundays (silent if no events are scheduled).
 - **Manual Trigger:** Send `/recap_generate` (or shortcut `/rg`) in `ADMIN_CHAT_ID` (or `/recap_generate DD-MM-YYYY` / `/rg DD-MM-YYYY` for any target date). If there are no scheduled events for today (or the target date), the bot notifies the admin directly in `ADMIN_CHAT_ID` (`Nessun evento in programma per oggi.`) without generating an empty recap.
 - **Recap Card & Collage:** The bot generates a horizontal image collage of all scheduled games and compiles the formatted Italian recap text (using slim fallback if >1024 characters).
 - **Review:** Admin reviews the collage and recap in Telegram with `[Publish Recap]` or `[Discard Recap]`.

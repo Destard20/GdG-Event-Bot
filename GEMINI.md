@@ -152,7 +152,7 @@ The system automates the ingestion, standardization, social sharing, and booking
 
 ### 2.7. Daily Recap Generation (`core/scheduler.py` & `bot/handlers.py`)
 1. **Triggering:**
-   - **Automatic:** Scheduled daily at **18:00** via APScheduler. Automatically checks if today is Monday, Wednesday, Friday, Saturday, or Sunday. Remains silent if no events are scheduled.
+   - **Automatic:** Scheduled daily at **16:00** via APScheduler. Automatically checks if today is Monday, Wednesday, Friday, Saturday, or Sunday. Remains silent if no events are scheduled.
    - **Manual:** Triggered via `/recap_generate` (or `/rg`) or `/recap_generate DD-MM-YYYY` / `/rg DD-MM-YYYY` (bypasses weekday check). If no events are scheduled for today (or the target date), notifies the admin directly in `ADMIN_CHAT_ID` (`Nessun evento in programma per oggi.`) without generating an empty recap.
 2. **Data Aggregation:**
    - Queries `events` table for all `approved` and `cancelled` events where `normalized_date == date_str`.
@@ -214,7 +214,7 @@ GdG-Event-Bot/
 │   ├── config.py         # Loads environment variables (.environments), paths, constants
 │   ├── db.py             # SQLite CRUD operations for events and reservations
 │   ├── ai_parser.py      # Gemini API integration: message extraction and WP article generation
-│   ├── scheduler.py      # APScheduler job running daily at 18:00 for recaps
+│   ├── scheduler.py      # APScheduler job running daily at 16:00 for recaps
 │   ├── log_utils.py      # Daily rotating log handler and monthly log zip archiving
 │   ├── wordpress.py      # WordPress REST API: media uploads, post drafting, and publishing
 │   └── instagram.py      # Meta Graph API: container creation & story publishing

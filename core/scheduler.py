@@ -180,8 +180,8 @@ scheduler_instance = None
 def start_scheduler(bot):
     global scheduler_instance
     scheduler_instance = AsyncIOScheduler()
-    # Schedule to run every day at a specific time (e.g., 18:00)
-    scheduler_instance.add_job(generate_daily_recap, 'cron', hour=18, minute=0, args=[bot])
+    # Schedule to run every day at a specific time (e.g., 16:00)
+    scheduler_instance.add_job(generate_daily_recap, 'cron', hour=16, minute=0, args=[bot])
     # Schedule daily image archive at 23:59 and disable booking for today's events
     scheduler_instance.add_job(archive_today_images, 'cron', hour=23, minute=59, args=[bot])
     # Schedule check and zipping of ended month logs daily at 00:05
