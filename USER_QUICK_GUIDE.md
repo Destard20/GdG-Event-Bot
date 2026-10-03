@@ -55,7 +55,7 @@ Se hai bisogno di forzare l'aggiunta o la rimozione di un utente (ad esempio se 
    - `/event_sub_remove @username [numero_posti]`
 
 ### 5. Generazione Recap
-- **Automatica:** Il bot genera automaticamente un riepilogo giornaliero alle **18:00** nei giorni di apertura (Lunedì, Mercoledì, Venerdì, Sabato, Domenica).
+- **Automatica:** Il bot genera automaticamente un riepilogo giornaliero alle **16:00** nei giorni di apertura (Lunedì, Mercoledì, Venerdì, Sabato, Domenica).
 - **Manuale:** Puoi forzare un recap in qualsiasi momento inviando il comando `/recap_generate` (o `/rg`). Per fare il recap di un giorno specifico usa `/rg DD-MM-YYYY`.
   *(Nota: se non ci sono eventi in programma per la data richiesta, il bot avvisa direttamente nel gruppo admin)*.
 - Una volta generato il recap nel gruppo admin, puoi approvarlo cliccando **[Publish Recap]** per mandarlo sul canale, generare l'immagine per le storie di Instagram e redigere l'articolo WordPress.
