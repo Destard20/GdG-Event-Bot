@@ -737,6 +737,52 @@ class TestEventNextCommand(unittest.IsolatedAsyncioTestCase):
         self.assertIn('https://t.me/c/999999/302', reply_text)
         self.assertIn('https://t.me/c/888888/401', reply_text)
 
+    async def test_event_next_command_public_private_chat_allowed(self):
+        from bot.handlers import event_next_command
+        update = MagicMock()
+        update.effective_chat.id = 55555
+        update.effective_chat.type = "private"
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "-100999999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100888888"):
+            await event_next_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        self.assertIn("Nessun evento in programma", update.message.reply_text.call_args[0][0])
+
+    async def test_event_next_command_discussion_group_allowed(self):
+        from bot.handlers import event_next_command
+        update = MagicMock()
+        update.effective_chat.id = -100888888
+        update.effective_chat.type = "supergroup"
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "-100999999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100888888"), \
+             patch("bot.handlers.ALLOW_GROUP_EVENT_NEXT", True):
+            await event_next_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        self.assertIn("Nessun evento in programma", update.message.reply_text.call_args[0][0])
+
+    async def test_event_next_command_discussion_group_disabled(self):
+        from bot.handlers import event_next_command
+        update = MagicMock()
+        update.effective_chat.id = -100888888
+        update.effective_chat.type = "supergroup"
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "-100999999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100888888"), \
+             patch("bot.handlers.ALLOW_GROUP_EVENT_NEXT", False):
+            await event_next_command(update, context)
+
+        update.message.reply_text.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

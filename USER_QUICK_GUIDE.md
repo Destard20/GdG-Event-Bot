@@ -7,6 +7,7 @@ Questa guida illustra le funzionalità principali del Bot e spiega come utilizza
 ## 🌟 Funzionalità Principali
 
 - **Creazione Eventi Intelligente:** Il bot legge i messaggi testuali (anche con locandine allegate) e struttura automaticamente i dati dell'evento grazie all'IA.
+- **Generazione Automatica Eventi:** Creazione rapida di eventi da istruzioni libere con `/event_generate`, con recupero automatico delle scatole dei giochi da BoardGameGeek e composizione di collage per più giochi.
 - **Prenotazioni Live (Inline):** Gli utenti possono prenotare o disdire il proprio posto direttamente dai pulsanti interattivi sotto i messaggi del canale Telegram.
 - **Prevenzione Conflitti:** Il bot avvisa automaticamente gli utenti se si prenotano a più di un evento nello stesso giorno.
 - **Recap Giornalieri:** Generazione automatica di collage di immagini e riepiloghi testuali per Telegram, con integrazione diretta verso le storie di Instagram e bozze per gli articoli di WordPress.
@@ -19,6 +20,9 @@ Gli amministratori gestiscono il bot tramite il **Gruppo Admin**.
 
 ### 1. Creare un Evento
 - **Modalità Automatica:** Invia o inoltra semplicemente il messaggio di proposta (testo ed eventuale immagine) all'interno del Gruppo Admin. Il bot lo leggerà e genererà una scheda di anteprima (Draft).
+- **Generazione con AI e BoardGameGeek (`/event_generate` o `/eg`):** Invia nel Gruppo Admin un messaggio con istruzioni libere (es. giochi, data, host, posti):
+  `/event_generate Catan e Wingspan, venerdì 10 ottobre 21:00, host Destard, 4 posti` (oppure `/eg <testo>`)
+  Il bot interpreterà la richiesta tramite l'IA, scaricherà le locandine ufficiali dei giochi da BoardGameGeek (componendo automaticamente un collage se sono presenti più giochi), genererà una sinossi rispettando il limite di 1024 caratteri della didascalia Telegram e sottoporrà la bozza a revisione admin.
 - **Protezione del Canale Eventi Pubblico:** Se un utente o un amministratore invia *manualmente* una proposta di evento in modo diretto nel canale pubblico degli eventi, **il bot la cancellerà istantaneamente** per mantenere il canale pulito e standardizzato. Il messaggio originale verrà inoltrato automaticamente nel Gruppo Admin, dove potrà essere processato, revisionato dall'IA e infine pubblicato ufficialmente.
 - **Modalità Manuale:** Se il bot è disabilitato o non ha catturato un messaggio, puoi forzare la lettura rispondendo al messaggio originale con il comando:
   `/event_process` (oppure `/ep`)
@@ -45,10 +49,10 @@ Se un evento già pubblicato viene cancellato dal Master:
 
 ### 4. Gestione Manuale degli Iscritti
 Se hai bisogno di forzare l'aggiunta o la rimozione di un utente (ad esempio se non hanno Telegram o hanno problemi tecnici):
-1. Clicca su **[👥 Gestisci Iscritti]** sotto l'evento per vedere la lista completa dei giocatori.
-2. Rispondi al messaggio dell'evento con:
-   - `/event_add_sub @username [numero_posti]` *(es. `/event_add_sub @mario 2`)*
-   - `/event_remove_sub @username [numero_posti]`
+1. Clicca su **[👥 Gestisci Iscritti]** sotto l'evento per vedere la lista completa dei giocatori e usare i pulsanti `➕` e `➖`.
+2. Oppure usa i comandi (rispondendo al messaggio dell'evento o specificando l'ID):
+   - `/event_sub_add @username [numero_posti]` *(es. `/event_sub_add @mario 2`)*
+   - `/event_sub_remove @username [numero_posti]`
 
 ### 5. Generazione Recap
 - **Automatica:** Il bot genera automaticamente un riepilogo giornaliero alle **18:00** nei giorni di apertura (Lunedì, Mercoledì, Venerdì, Sabato, Domenica).
@@ -60,13 +64,14 @@ Se hai bisogno di forzare l'aggiunta o la rimozione di un utente (ad esempio se 
 - `/bot_pause`: Mette in pausa la lettura automatica dei messaggi per la creazione di eventi (utile durante lunghe discussioni nel canale).
 - `/bot_resume`: Riattiva il bot.
 - `/bot_status`: Mostra lo stato attuale del bot (Attivo/In pausa).
-- `/event_next`: Mostra la lista di tutti gli eventi di oggi e futuri, con la data e i link rapidi al messaggio nel gruppo admin (per inviare comandi di modifica) e al messaggio nel gruppo discussione.
+- `/event_next`: Mostra la lista di tutti gli eventi di oggi e futuri in ordine cronologico con data e link rapidi. Questo comando è **accessibile anche pubblicamente agli utenti** sia in chat privata col bot che nel gruppo discussione (disattivabile nel gruppo discussione tramite variabile d'ambiente `ALLOW_GROUP_EVENT_NEXT=false` per prevenire spam).
 
 ---
 
-## 👤 Per gli Utenti: Prenotazione Posti
+## 👤 Per gli Utenti: Prenotazione Posti e Consultazione Eventi
 
-La prenotazione dei tavoli per i giocatori è semplicissima e avviene nel canale pubblico della Gilda o nel gruppo discussione:
+La prenotazione e la consultazione dei tavoli per i giocatori è semplicissima:
+- **Per Consultare gli Eventi (`/event_next`):** Invia `/event_next` in chat privata col bot oppure nel gruppo discussione per visualizzare l'elenco cronologico di tutti gli eventi di oggi e futuri con i rispettivi link ai canali e alle discussioni.
 - **Per Prenotarsi:** Clicca sul pulsante inline **[➕ Prenota]** (oppure **[🚫 Esauriti]** se non ci sono più posti disponibili). Il contatore dei posti si aggiornerà in tempo reale e il bot confermerà la prenotazione taggandoti nei commenti.
 - **Per Vedere gli Iscritti:** Clicca sul pulsante **[👥 Lista]**. Il bot ti aprirà una chat privata mostrando l'elenco completo dei partecipanti senza intasare la chat di gruppo.
 - **Per Disdire:** Clicca sul pulsante **[➖ Annulla]** per liberare il tuo posto e rimetterlo a disposizione di altri.

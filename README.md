@@ -129,6 +129,7 @@ python3 main.py
 - **Admin Review:** The parsed event is forwarded to `ADMIN_CHAT_ID` with buttons: `[Publish]`, `[Discard]`, `[Cancel]`.
 - **Publishing:** Clicking `[Publish]` posts the officially formatted message with `[➕ Prenota] [👥 Lista] [➖ Annulla]` to the public channel and generates the Instagram Story graphic locally.
 - **Manual Trigger:** In `ADMIN_CHAT_ID`, reply to any forwarded text/photo message with `/event_process` (or shortcut `/ep`).
+- **AI Event Generation:** In `ADMIN_CHAT_ID`, send `/event_generate <istruzioni>` (or shortcut `/eg`) with informal instructions (e.g. `Catan e Wingspan, venerdì 10 ottobre 21:00, host Destard, 4 posti`). Gemini AI interprets the parameters, fetches official box images from BoardGameGeek, stitches a horizontal collage if multiple games are requested, generates a concise Italian description within Telegram's 1024-character caption limit, and sends the drafted event to admin review.
 
 ### 2. Live Seat Booking & Same-Day Conflict Warnings
 - Users click `[➕ Prenota]` on a channel post or discussion group reply to reserve a seat (or see `[🚫 Esauriti]` if full).
@@ -177,12 +178,13 @@ In `ADMIN_CHAT_ID`, each event card includes a `[👥 Gestisci Iscritti]` button
 - **Reactivation (`[♻️ Riattiva Evento]`):** Under a cancelled event in `ADMIN_CHAT_ID`, admins can click `[♻️ Riattiva Evento]`. This restores status to `approved`, restores booking buttons in the public channel and discussion group, and posts a notification in the discussion group notifying the original subscribers that the event is reactivated.
 
 
-### 7. Bot Control Commands
-In `ADMIN_CHAT_ID`:
+### 7. Event Overview & Bot Control Commands
+- `/event_next`: Public command displaying today's and upcoming events in chronological order, with quick links to message and discussion chat. Accessible by any user in 1-on-1 private chat with the bot, in `ADMIN_CHAT_ID`, and in `DISCUSSION_GROUP_ID` (can be disabled in the discussion group via `ALLOW_GROUP_EVENT_NEXT=false` to prevent spam).
+
+In `ADMIN_CHAT_ID` only:
 - `/bot_pause`: Pauses public channel monitoring (bot becomes "blind" and will not intercept or delete events posted to the channel).
 - `/bot_resume`: Resumes public channel monitoring.
 - `/bot_status`: Checks whether the bot is currently active or paused.
-- `/event_next`: Displays all today's and upcoming events in chronological order, with quick links to the respective admin message and discussion chat.
 
 ---
 

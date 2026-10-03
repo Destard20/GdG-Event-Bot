@@ -57,7 +57,15 @@ The system automates the ingestion, standardization, social sharing, and booking
    - Photos/albums sent in `ADMIN_CHAT_ID` are silently cached in memory. When replying with `/ep` to any photo in an album, the bot aggregates all sibling photos of that `media_group_id`, stitches them into a horizontal collage using `utils/image_utils.create_collage_from_bytes`, and resolves text from the command, replied message, or album captions.
    - **Note:** Manual triggers bypass the keyword pre-filter, enabling admins to process events with non-standard formatting.
    - Operates through the identical parsing and review pipeline.
-3. **Monitoring Pause / Resume (`/bot_pause`, `/bot_resume`, `/bot_status`):**
+3. **AI Event Generation (`/event_generate` or `/eg`):**
+   - Admins can send `/event_generate <istruzioni>` or `/eg <istruzioni>` (or reply to a message with the command) in `ADMIN_CHAT_ID`.
+   - Handled in `bot/event_generator.py`:
+     - Gemini AI interprets natural language instructions (games, date, host, seats, extra info, RPG vs board game) and writes an engaging synopsis/pitch in Italian constrained to <= 400 characters.
+     - For each identified game, queries the BoardGameGeek JSON API (`https://api.geekdo.com/api/geekitems`) to find the best match and download the official box cover image.
+     - If multiple games were requested, builds a uniform horizontal collage via `utils/image_utils.create_collage_from_bytes`. If a single game was requested, preserves the single image without collaging.
+     - Programmatically guarantees the entire formatted event caption stays within Telegram's 1024-character caption limit via `enforce_caption_limit()`.
+     - Inserts the generated event as `pending` into SQLite and sends the preview card to `ADMIN_CHAT_ID` with standard approval buttons (`[Publish]`, `[Discard]`, `[👥 Gestisci Iscritti]`).
+4. **Monitoring Pause / Resume (`/bot_pause`, `/bot_resume`, `/bot_status`):**
    - Admins can send `/bot_pause` in `ADMIN_CHAT_ID` to make the bot temporarily "blind" to `PUBLIC_CHANNEL_ID` (it will not intercept, parse, or delete messages from the channel).
    - Send `/bot_resume` to re-enable interception, and `/bot_status` to check the current operational state.
 
@@ -297,6 +305,7 @@ GdG-Event-Bot/
 | `IG_ACCOUNT_ID` | Instagram Business Account Numeric ID | `178414...` |
 | `DATA_DIR` | (Optional) Custom path for storage | `/var/gdg_data` |
 | `MAX_EVENTS_PER_ROW` | (Optional) Maximum number of event images per row in collages | `4` |
+| `ALLOW_GROUP_EVENT_NEXT` | (Optional) Enable/disable `/event_next` in discussion group (`true`/`false`) | `true` |
 
 ---
 

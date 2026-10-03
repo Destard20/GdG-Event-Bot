@@ -17,6 +17,7 @@ from bot.handlers import (
     event_sub_add_command, event_sub_remove_command, handle_admin_reply,
     cache_admin_media_group, start_command
 )
+from bot.event_generator import event_generate_command
 from bot.callbacks import handle_approval
 from core.scheduler import start_scheduler
 from core.log_utils import DailyMonthlyLogHandler
@@ -44,13 +45,15 @@ async def post_init(application: Application):
     # Default commands for users in private chats / groups
     default_commands = [
         BotCommand("start", "Avvia il bot e visualizza info o iscritti"),
+        BotCommand("event_next", "Mostra gli eventi di oggi e futuri"),
     ]
 
     # Admin commands available in ADMIN_CHAT_ID with syntax descriptions
     admin_commands = [
         BotCommand("event_process", "<testo o foto> Analizza e crea bozza evento"),
         BotCommand("ep", "<testo o foto> Analizza e crea bozza evento"),
-        BotCommand("event_next", "Mostra gli eventi di oggi e futuri con link rapidi"),
+        BotCommand("event_generate", "<istruzioni> Genera evento e locandina con AI"),
+        BotCommand("eg", "<istruzioni> Genera evento e locandina con AI"),
         BotCommand("recap_generate", "[DD-MM-YYYY] Genera recap giornaliero (/rg)"),
         BotCommand("rg", "[DD-MM-YYYY] Genera recap giornaliero"),
         BotCommand("bot_pause", "Mette in pausa l'intercettazione automatica"),
@@ -115,6 +118,8 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("event_process", manual_trigger_command, block=False))
     application.add_handler(CommandHandler("ep", manual_trigger_command, block=False))
+    application.add_handler(CommandHandler("event_generate", event_generate_command, block=False))
+    application.add_handler(CommandHandler("eg", event_generate_command, block=False))
     application.add_handler(CommandHandler("event_next", event_next_command))
     application.add_handler(CommandHandler("recap_generate", manual_recap_command))
     application.add_handler(CommandHandler("rg", manual_recap_command))
@@ -136,6 +141,7 @@ def main():
     # Caption command handlers (PTB CommandHandler only matches message.text, not message.caption)
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_edit_"), event_edit_command, block=False))
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_process|ep)(\s|$|@)"), manual_trigger_command, block=False))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_generate|eg)(\s|$|@)"), event_generate_command, block=False))
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(recap_generate|rg)(\s|$|@)"), manual_recap_command))
     
     # Listen to admin chat for prompt replies and album photos caching

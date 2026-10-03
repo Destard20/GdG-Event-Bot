@@ -18,7 +18,7 @@ from core.db import (
     admin_remove_subscriber,
     get_reservation_by_user,
 )
-from core.config import DATA_DIR, ADMIN_CHAT_ID, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
+from core.config import DATA_DIR, ADMIN_CHAT_ID, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID, ALLOW_GROUP_EVENT_NEXT
 from utils.image_utils import save_image_locally, create_collage_from_bytes, delete_local_image, move_image_locally
 from utils.templates import format_instagram_story, format_public_event_message
 from utils.date_utils import parse_user_date, format_standard_event_date, validate_event_date_anomalies
@@ -61,17 +61,34 @@ async def bot_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"Stato del bot: {status}")
 
 async def event_next_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message or not update.effective_chat:
         return
 
-    admin_user = update.effective_user
-    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
-    logger.info(f"{admin_identifier} requested upcoming events (/event_next).")
+    chat = update.effective_chat
+    chat_id_str = str(chat.id)
+    chat_type = getattr(chat, "type", "")
+
+    is_admin_chat = bool(ADMIN_CHAT_ID and chat_id_str == str(ADMIN_CHAT_ID))
+    is_discussion_group = bool(DISCUSSION_GROUP_ID and chat_id_str == str(DISCUSSION_GROUP_ID))
+    is_private_chat = chat_type == "private"
+
+    # Only allowed in ADMIN_CHAT_ID, private 1-on-1 chats with the bot, or DISCUSSION_GROUP_ID
+    if not (is_admin_chat or is_private_chat or is_discussion_group):
+        return
+
+    # Check if disabled in discussion group via ALLOW_GROUP_EVENT_NEXT
+    if is_discussion_group and not is_admin_chat and not ALLOW_GROUP_EVENT_NEXT:
+        return
+
+    user = update.effective_user
+    user_identifier = f"User {user.id} (@{user.username})" if getattr(user, 'username', None) else f"User {getattr(user, 'id', 'unknown')}"
+    logger.info(f"{user_identifier} requested upcoming events (/event_next) in chat {chat_id_str} ({chat_type}).")
 
     events = get_upcoming_events(include_today=True)
 
     if not events:
-        await update.message.reply_text("Nessun evento in programma per oggi o per i prossimi giorni.")
+        await message.reply_text("Nessun evento in programma per oggi o per i prossimi giorni.")
         return
 
     header = "📅 <b>Eventi di oggi e prossimi in programma:</b>\n\n"
@@ -126,12 +143,12 @@ async def event_next_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chunk = header
     for entry in formatted_entries:
         if len(chunk) + len(entry) > 3800:
-            await update.message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+            await message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
             chunk = ""
         chunk += entry + "\n"
 
     if chunk.strip():
-        await update.message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+        await message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -446,8 +463,12 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # This responds to /event_process or /ep
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return
+
     if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
-        await update.message.reply_text("Non sei autorizzato.")
+        await message.reply_text("Non sei autorizzato.")
         return
 
     admin_user = update.effective_user
@@ -455,12 +476,12 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
     logger.info(f"{admin_identifier} manually triggered event processing (/event_process).")
 
     # User might reply to a message or send text with it
-    if update.message.reply_to_message:
-        target_msg = update.message.reply_to_message
+    if message.reply_to_message:
+        target_msg = message.reply_to_message
 
         # Check text in command vs target message
         text = None
-        cmd_raw = update.message.text or update.message.caption or ""
+        cmd_raw = message.text or message.caption or ""
         text_parts = cmd_raw.split(maxsplit=1)
         if len(text_parts) > 1 and text_parts[1].strip():
             text = text_parts[1].strip()
@@ -494,20 +515,20 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
                 logger.error(f"Error downloading document image in manual trigger: {e}")
 
         if not text:
-            await update.message.reply_text("Nessun testo trovato nel messaggio o nel comando. Includi il testo o invia una didascalia.")
+            await message.reply_text("Nessun testo trovato nel messaggio o nel comando. Includi il testo o invia una didascalia.")
             return
 
         success = await handle_event_extraction(text, image_bytes, context, target_msg.link, target_msg.message_id, is_manual_trigger=True)
         if success:
-            await update.message.reply_text("Processato il messaggio risposto.")
+            await message.reply_text("Processato il messaggio risposto.")
     else:
         # Check from the command message itself
-        cmd_raw = update.message.text or update.message.caption or ""
+        cmd_raw = message.text or message.caption or ""
         text_parts = cmd_raw.split(maxsplit=1)
         text = text_parts[1].strip() if len(text_parts) > 1 else None
 
         image_bytes = None
-        media_group_id = getattr(update.message, "media_group_id", None)
+        media_group_id = getattr(message, "media_group_id", None)
         if isinstance(media_group_id, str):
             cached_image_bytes, first_caption = await _get_media_group_data_from_cache(media_group_id, wait_if_missing=True)
             if cached_image_bytes is not None:
@@ -515,7 +536,7 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
             if not text and first_caption:
                 text = first_caption
 
-        msg_photo = getattr(update.message, "photo", None)
+        msg_photo = getattr(message, "photo", None)
         if image_bytes is None and msg_photo and isinstance(msg_photo, (list, tuple)) and len(msg_photo) > 0:
             try:
                 photo_file = await msg_photo[-1].get_file()
@@ -523,7 +544,7 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
             except Exception as e:
                 logger.error(f"Error downloading photo in direct manual trigger: {e}")
 
-        msg_doc = getattr(update.message, "document", None)
+        msg_doc = getattr(message, "document", None)
         if image_bytes is None and msg_doc and getattr(msg_doc, "mime_type", "").startswith("image/"):
             try:
                 doc_file = await msg_doc.get_file()
@@ -532,11 +553,11 @@ async def manual_trigger_command(update: Update, context: ContextTypes.DEFAULT_T
                 logger.error(f"Error downloading document image in direct manual trigger: {e}")
 
         if text:
-            success = await handle_event_extraction(text, image_bytes, context, update.message.link, update.message.message_id, is_manual_trigger=True)
+            success = await handle_event_extraction(text, image_bytes, context, message.link, message.message_id, is_manual_trigger=True)
             if success:
-                await update.message.reply_text("Processato il testo inviato.")
+                await message.reply_text("Processato il testo inviato.")
         else:
-            await update.message.reply_text("Rispondi a un messaggio o fornisci il testo.")
+            await message.reply_text("Rispondi a un messaggio o fornisci il testo.")
             
 EVENT_KEYWORD_PATTERNS = [
     re.compile(r"\b(titolo|posti(\s+liberi)?|descrizione|sinossi|gioco|quando|data)\s*:", re.IGNORECASE),

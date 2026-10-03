@@ -21,6 +21,7 @@ WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
 WP_POST_CATEGORY = os.getenv("WP_POST_CATEGORY")
 IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
 IG_ACCOUNT_ID = os.getenv("IG_ACCOUNT_ID")
+ALLOW_GROUP_EVENT_NEXT = os.getenv("ALLOW_GROUP_EVENT_NEXT", "true").lower() in ["true", "1", "yes"]
 
 MAX_EVENTS_PER_ROW = int(os.getenv("MAX_EVENTS_PER_ROW", "0"))
 
