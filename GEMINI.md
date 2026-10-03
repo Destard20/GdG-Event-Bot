@@ -119,6 +119,9 @@ The system automates the ingestion, standardization, social sharing, and booking
 - **Deep-Link Participant List (`[👥 Lista]` -> `t.me/{bot_username}?start=subs_{event_id}`):**
   - Opens a 1-on-1 private chat with the bot and executes `/start subs_{event_id}`.
   - Bot responds directly in DM with a formatted overview of current subscribers and seat counts, completely avoiding chat spam in public channels and discussion groups.
+- **Deep-Link Upcoming Events (`t.me/{bot_username}?start=event_next`):**
+  - Opens a 1-on-1 private chat with the bot and executes `/start event_next`, which triggers `/event_next` and displays all today's and upcoming scheduled events directly in DM.
+
 - **Same-Day Conflict Warnings (`get_user_conflicting_events` & `send_conflict_warning`):**
   - When a user reserves a seat, the system checks whether the user already holds active reservations (`seats_booked > 0`) for any other valid events (`status NOT IN ('cancelled', 'discarded')`) scheduled on that exact same day.
   - Handles date comparison across date formats (`DD-MM-YYYY` vs `YYYY-MM-DD`).

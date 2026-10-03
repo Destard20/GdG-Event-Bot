@@ -152,17 +152,21 @@ async def event_next_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
         return
 
     args = context.args
     if args and len(args) > 0:
         arg = args[0]
-        if arg.startswith("subs_"):
+        if arg == "event_next":
+            await event_next_command(update, context)
+            return
+        elif arg.startswith("subs_"):
             try:
                 event_id = int(arg.split("_")[1])
             except (IndexError, ValueError):
-                await update.message.reply_text("❌ ID evento non valido.")
+                await message.reply_text("❌ ID evento non valido.")
                 return
 
             from core.db import get_event, get_reservations_for_event
@@ -170,19 +174,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             event = get_event(event_id)
             if not event:
-                await update.message.reply_text("❌ Evento non trovato o già rimosso.")
+                await message.reply_text("❌ Evento non trovato o già rimosso.")
                 return
 
             reservations = get_reservations_for_event(event_id)
             text = format_event_participants_message(event, reservations)
-            await update.message.reply_text(
+            await message.reply_text(
                 text,
                 parse_mode="HTML",
                 disable_web_page_preview=True
             )
             return
 
-    await update.message.reply_text(
+    await message.reply_text(
         "👋 Ciao! Sono il bot per la gestione degli eventi della Gilda del Grifone.\n\n"
         "Puoi visualizzare le proposte e gestire le prenotazioni direttamente dai pulsanti interattivi sul canale e nel gruppo di discussione!"
     )

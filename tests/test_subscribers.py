@@ -1217,6 +1217,18 @@ class TestSubscribersWithoutUsername(unittest.IsolatedAsyncioTestCase):
         text = update.message.reply_text.call_args[0][0]
         self.assertIn("Gilda del Grifone", text)
 
+    async def test_start_command_event_next_arg(self):
+        update = MagicMock()
+        update.effective_chat.id = 12345
+        update.effective_chat.type = "private"
+        update.message = AsyncMock()
+        context = MagicMock()
+        context.args = ["event_next"]
+
+        with patch("bot.handlers.event_next_command", new_callable=AsyncMock) as mock_event_next:
+            await start_command(update, context)
+            mock_event_next.assert_called_once_with(update, context)
+
 
 
 
