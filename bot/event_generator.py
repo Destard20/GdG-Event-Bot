@@ -127,13 +127,12 @@ def generate_event_data_with_ai(prompt_text: str) -> dict | None:
     today_context = f"{weekday_it} {now.strftime('%d-%m-%Y')} (Year: 2026)"
 
     prompt = f"""
-You are an AI assistant for a tabletop games association in Italy (Gilda del Grifone).
+You are an AI assistant for a tabletop games association.
 The user provides informal instructions to create a new gaming event (e.g., game title(s), date, host, seats, etc.).
 Analyze the user's message and generate a structured JSON object.
 
 Context:
 - Current date reference: {today_context}.
-- Default gaming location: Gilda del Grifone, Turin.
 - Standard default start time: 21:00 (if no time specified).
 
 Required JSON structure:
