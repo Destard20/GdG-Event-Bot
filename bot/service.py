@@ -44,7 +44,7 @@ async def update_event_messages(context, event_id, event=None, current_query=Non
         pub_keyboard = get_event_booking_keyboard(event_id, event=event, bot_username=bot_username)
 
     # 1. Update message in PUBLIC_CHANNEL_ID
-    if PUBLIC_CHANNEL_ID and event.get('telegram_message_id'):
+    if PUBLIC_CHANNEL_ID and event.get('telegram_message_id') and event.get('status') in ['approved', 'cancelled']:
         try:
             if update_image and event.get('image_path') and os.path.exists(event['image_path']):
                 try:
@@ -413,8 +413,8 @@ async def send_admin_action_notice(
     if not event:
         return
 
-    # Only send for approved/cancelled events or events already posted to public channel
-    if event.get('status') not in ['approved', 'cancelled'] and not event.get('telegram_message_id'):
+    # Only send for approved/cancelled events (published events)
+    if event.get('status') not in ['approved', 'cancelled']:
         return
 
     # Format event admin identifier

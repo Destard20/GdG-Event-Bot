@@ -1231,6 +1231,193 @@ class TestSubscribersWithoutUsername(unittest.IsolatedAsyncioTestCase):
 
 
 
+class TestUnpublishedEventSubscribers(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.test_db_path = os.path.join(self.temp_dir.name, "test_events.db")
+        self.orig_db_path = db.DB_PATH
+        db.DB_PATH = self.test_db_path
+        db.init_db()
+
+        # Create an event that is still NOT published (status: pending)
+        self.pending_event_id = db.insert_event({
+            "title": "Unpublished Draft Event",
+            "date": "Sabato 21:00",
+            "normalized_date": "2026-10-10",
+            "system": "Call of Cthulhu",
+            "host": "Keeper",
+            "seats": "4/4",
+            "booked_seats": 0,
+            "max_seats": 4,
+            "description": "Una sessione non ancora pubblicata",
+        }, None, "raw text")
+        ev = db.get_event(self.pending_event_id)
+        assert ev["status"] == "pending"
+
+    def tearDown(self):
+        db.DB_PATH = self.orig_db_path
+        self.temp_dir.cleanup()
+
+    async def test_send_admin_action_notice_direct_unpublished_ignored(self):
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        admin_user = MagicMock(username="chief_admin", first_name="Chief")
+
+        # 1. Pending event with no telegram_message_id
+        ev = db.get_event(self.pending_event_id)
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"):
+            await send_admin_action_notice(
+                context,
+                ev,
+                target_username="player1",
+                action="add",
+                seats=1,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_not_called()
+
+        # 2. Pending event even if telegram_message_id is set
+        ev_with_msg_id = dict(ev)
+        ev_with_msg_id["telegram_message_id"] = 998877
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"):
+            await send_admin_action_notice(
+                context,
+                ev_with_msg_id,
+                target_username="player1",
+                action="add",
+                seats=1,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_not_called()
+
+        # 3. Discarded event
+        ev_discarded = dict(ev)
+        ev_discarded["status"] = "discarded"
+        with patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"):
+            await send_admin_action_notice(
+                context,
+                ev_discarded,
+                target_username="player1",
+                action="add",
+                seats=1,
+                admin_user=admin_user,
+            )
+            context.bot.send_message.assert_not_called()
+
+    async def test_unpublished_event_sub_add_command_does_not_send_discussion_notice(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.effective_user.id = 111
+        update.effective_user.username = "chief_admin"
+        update.message.reply_to_message = None
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        context.args = [str(self.pending_event_id), "@player1", "2"]
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            await event_sub_add_command(update, context)
+
+            subs = db.get_reservations_for_event(self.pending_event_id)
+            self.assertEqual(len(subs), 1)
+            self.assertEqual(subs[0]["username"], "player1")
+            self.assertEqual(subs[0]["seats_booked"], 2)
+
+            update.message.reply_text.assert_called_once()
+            self.assertIn("registrato con successo", update.message.reply_text.call_args[0][0])
+            context.bot.send_message.assert_not_called()
+
+    async def test_unpublished_event_sub_remove_command_does_not_send_discussion_notice(self):
+        # Pre-register user
+        db.admin_add_subscriber(self.pending_event_id, "@player1", seats=2)
+
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.effective_user.id = 111
+        update.effective_user.username = "chief_admin"
+        update.message.reply_to_message = None
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+        context.args = [str(self.pending_event_id), "@player1", "1"]
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            await event_sub_remove_command(update, context)
+
+            subs = db.get_reservations_for_event(self.pending_event_id)
+            self.assertEqual(len(subs), 1)
+            self.assertEqual(subs[0]["seats_booked"], 1)
+
+            update.message.reply_text.assert_called_once()
+            self.assertIn("Rimossi 1 posto/i", update.message.reply_text.call_args[0][0])
+            context.bot.send_message.assert_not_called()
+
+    async def test_unpublished_event_admin_reply_does_not_send_discussion_notice(self):
+        update = MagicMock()
+        update.effective_chat.id = 999
+        update.effective_user.id = 111
+        update.effective_user.username = "chief_admin"
+        update.message.reply_text = AsyncMock()
+        update.message.reply_to_message = MagicMock()
+        update.message.reply_to_message.text = f"✏️ Invia l'username Telegram, rispondendo a questo messaggio, da aggiungere all'evento #{self.pending_event_id}"
+        update.message.text = "@newplayer 1"
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.handlers.update_event_messages", AsyncMock()):
+            await handle_admin_reply(update, context)
+
+            subs = db.get_reservations_for_event(self.pending_event_id)
+            self.assertEqual(len(subs), 1)
+            self.assertEqual(subs[0]["username"], "newplayer")
+            update.message.reply_text.assert_called_once()
+            context.bot.send_message.assert_not_called()
+
+    async def test_unpublished_event_sub_inc_and_dec_callbacks_do_not_send_discussion_notice(self):
+        db.admin_add_subscriber(self.pending_event_id, "@player1", seats=1)
+        subs = db.get_reservations_for_event(self.pending_event_id)
+        res_id = subs[0]["id"]
+
+        update = MagicMock()
+        query = MagicMock()
+        query.from_user.id = 111
+        query.from_user.username = "chief_admin"
+        query.message.chat_id = 999
+        query.message.text = "👥 Gestione Iscritti"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+        context = MagicMock()
+        context.bot.send_message = AsyncMock()
+
+        with patch("bot.callbacks.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.service.DISCUSSION_GROUP_ID", "-100123456"), \
+             patch("bot.callbacks.update_event_messages", AsyncMock()):
+            # sub_inc_
+            query.data = f"sub_inc_{self.pending_event_id}_{res_id}"
+            await handle_approval(update, context)
+
+            subs_after = db.get_reservations_for_event(self.pending_event_id)
+            self.assertEqual(subs_after[0]["seats_booked"], 2)
+            context.bot.send_message.assert_not_called()
+
+            # sub_dec_
+            query.data = f"sub_dec_{self.pending_event_id}_{res_id}"
+            await handle_approval(update, context)
+
+            subs_after = db.get_reservations_for_event(self.pending_event_id)
+            self.assertEqual(subs_after[0]["seats_booked"], 1)
+            context.bot.send_message.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
