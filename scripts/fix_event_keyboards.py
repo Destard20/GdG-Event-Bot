@@ -2,10 +2,17 @@
 """
 scripts/fix_event_keyboards.py
 
-Utility script to fix/synchronize inline keyboards for all events in the database.
+Utility script to fix/synchronize inline keyboards for events in the database.
+By default, only approved events are updated.
 Useful when event IDs have changed manually in SQLite and the existing buttons
 on Telegram messages (public channel, discussion group, admin chat) still point
 to outdated event IDs.
+
+Usage:
+    python3 scripts/fix_event_keyboards.py                 # Fix approved events only
+    python3 scripts/fix_event_keyboards.py --status all   # Fix all events
+    python3 scripts/fix_event_keyboards.py --event-id 12   # Fix single event
+    python3 scripts/fix_event_keyboards.py --dry-run       # Simulate only
 """
 
 import os
@@ -31,7 +38,7 @@ from core.config import (
     ADMIN_CHAT_ID,
     DB_PATH
 )
-from core.db import get_connection
+from core.db import get_connection, parse_date_tuple
 from bot.keyboards import (
     get_event_booking_keyboard,
     get_approval_keyboard,
@@ -77,8 +84,9 @@ async def fix_keyboards(
     target_event_id: Optional[int] = None,
     since_id: Optional[int] = None,
     dry_run: bool = False,
-    delay: float = 0.5,
-    include_discarded: bool = False
+    delay: float = 0.4,
+    status: Optional[str] = "approved",
+    upcoming_only: bool = True
 ):
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN is not set in environment!")
@@ -96,37 +104,61 @@ async def fix_keyboards(
         logger.error(f"Failed to authenticate with Telegram: {e}")
         sys.exit(1)
 
-    # Fetch events from SQLite
+    # Fetch events from SQLite (only approved events by default)
     events = []
     try:
         with get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            if target_event_id is not None:
-                cursor.execute("SELECT * FROM events WHERE id = ?", (target_event_id,))
-            elif since_id is not None:
-                if include_discarded:
-                    cursor.execute("SELECT * FROM events WHERE id >= ? ORDER BY id ASC", (since_id,))
-                else:
-                    cursor.execute("SELECT * FROM events WHERE id >= ? AND status != 'discarded' ORDER BY id ASC", (since_id,))
-            elif include_discarded:
-                cursor.execute("SELECT * FROM events ORDER BY id ASC")
+            query = "SELECT * FROM events"
+            params = []
+            conditions = []
+
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
             else:
-                cursor.execute("SELECT * FROM events WHERE status != 'discarded' ORDER BY id ASC")
+                conditions.append("status != 'discarded'")
+
+            if target_event_id is not None:
+                conditions.append("id = ?")
+                params.append(target_event_id)
+            elif since_id is not None:
+                conditions.append("id >= ?")
+                params.append(since_id)
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            query += " ORDER BY id ASC"
+
+            cursor.execute(query, tuple(params))
             rows = cursor.fetchall()
             events = [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"Failed to query database at {DB_PATH}: {e}")
         sys.exit(1)
 
+    # Filter to only events from today onward if upcoming_only is True
+    if upcoming_only and target_event_id is None:
+        from datetime import datetime
+        now_dt = datetime.now()
+        today_tuple = (now_dt.year, now_dt.month, now_dt.day)
+        upcoming_events = []
+        for ev in events:
+            dt = parse_date_tuple(ev.get("normalized_date")) or parse_date_tuple(ev.get("date"))
+            if dt and dt >= today_tuple:
+                upcoming_events.append(ev)
+        events = upcoming_events
+
     if not events:
         if target_event_id:
-            logger.warning(f"Event with ID {target_event_id} not found in database.")
+            logger.warning(f"Event with ID {target_event_id} (status: {status or 'any'}) not found in database.")
         else:
-            logger.warning("No events found to update.")
+            logger.warning(f"No events with status '{status or 'any'}' found to update.")
         return
 
-    logger.info(f"Loaded {len(events)} event(s) to process. Dry-run: {dry_run}\n")
+    logger.info(f"Loaded {len(events)} event(s) to process (Filter: status={status or 'all'}). Dry-run: {dry_run}\n")
 
     stats = {
         "events_processed": 0,
@@ -271,16 +303,20 @@ def main():
     parser.add_argument("--since-id", type=int, default=None, help="Fix events with ID >= since_id.")
     parser.add_argument("--dry-run", action="store_true", help="Simulate without editing messages.")
     parser.add_argument("--delay", type=float, default=0.3, help="Delay between API calls in seconds (default: 0.3).")
-    parser.add_argument("--include-discarded", action="store_true", help="Include discarded events.")
+    parser.add_argument("--status", type=str, default="approved", help="Filter by event status (default: approved). Pass 'all' to include all statuses.")
+    parser.add_argument("--include-past", action="store_true", help="Include past events (default: only events from today onwards).")
 
     args = parser.parse_args()
+
+    status_filter = None if args.status.lower() in ("all", "any") else args.status
 
     asyncio.run(fix_keyboards(
         target_event_id=args.event_id,
         since_id=args.since_id,
         dry_run=args.dry_run,
         delay=args.delay,
-        include_discarded=args.include_discarded
+        status=status_filter,
+        upcoming_only=not args.include_past
     ))
 
 

@@ -27,6 +27,7 @@ class TestFixKeyboardsScript(unittest.IsolatedAsyncioTestCase):
                 "id": 10,
                 "title": "Catan",
                 "status": "approved",
+                "normalized_date": "25-12-2099",
                 "telegram_message_id": 200,
                 "discussion_message_id": 300,
                 "discussion_chat_id": "-100111",
@@ -45,6 +46,26 @@ class TestFixKeyboardsScript(unittest.IsolatedAsyncioTestCase):
 
     @patch("scripts.fix_event_keyboards.get_connection")
     @patch("scripts.fix_event_keyboards.Bot")
+    async def test_fix_keyboards_filters_approved_status_by_default(self, mock_bot_cls, mock_get_conn):
+        mock_bot = MagicMock()
+        mock_bot.get_me = AsyncMock(return_value=MagicMock(username="GdG_Event_bot", id=12345))
+        mock_bot_cls.return_value = mock_bot
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn.cursor.return_value = mock_cursor
+        mock_get_conn.return_value.__enter__.return_value = mock_conn
+
+        await fix_keyboards(dry_run=True, delay=0)
+
+        query, params = mock_cursor.execute.call_args[0]
+        self.assertIn("status = ?", query)
+        self.assertEqual(params, ("approved",))
+
+
+    @patch("scripts.fix_event_keyboards.get_connection")
+    @patch("scripts.fix_event_keyboards.Bot")
     async def test_fix_keyboards_updates_all_targets(self, mock_bot_cls, mock_get_conn):
         mock_bot = MagicMock()
         mock_bot.get_me = AsyncMock(return_value=MagicMock(username="GdG_Event_bot", id=12345))
@@ -58,6 +79,7 @@ class TestFixKeyboardsScript(unittest.IsolatedAsyncioTestCase):
                 "id": 25,
                 "title": "Wingspan",
                 "status": "approved",
+                "normalized_date": "25-12-2099",
                 "telegram_message_id": 101,
                 "discussion_message_id": 202,
                 "discussion_chat_id": "-100222",
@@ -108,6 +130,7 @@ class TestFixKeyboardsScript(unittest.IsolatedAsyncioTestCase):
                 "id": 5,
                 "title": "Root",
                 "status": "approved",
+                "normalized_date": "25-12-2099",
                 "telegram_message_id": 105,
                 "discussion_message_id": None,
                 "admin_message_id": None,

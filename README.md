@@ -252,8 +252,11 @@ All maintenance utilities are located in the `scripts/` directory:
 
 - **Fix / Synchronize Inline Keyboards:**
   ```bash
-  # Synchronize keyboards across all event messages (Channel, Discussion, Admin):
+  # Synchronize keyboards across approved event messages (Channel, Discussion, Admin):
   python3 scripts/fix_event_keyboards.py
+
+  # Synchronize all statuses (including cancelled and pending):
+  python3 scripts/fix_event_keyboards.py --status all
 
   # Fix keyboards for a single event by ID:
   python3 scripts/fix_event_keyboards.py --event-id 42
@@ -264,7 +267,7 @@ All maintenance utilities are located in the `scripts/` directory:
   # Simulate without modifying messages (dry-run):
   python3 scripts/fix_event_keyboards.py --dry-run
   ```
-  Synchronizes inline callback buttons (`book_{id}`, `unbook_{id}`, `start=subs_{id}`, `manage_subs_{id}`) across Telegram channel posts, discussion replies, and admin messages to match their current database IDs.
+  Synchronizes inline callback buttons (`book_{id}`, `unbook_{id}`, `start=subs_{id}`, `manage_subs_{id}`) across Telegram channel posts, discussion replies, and admin messages to match their current database IDs (processes approved events by default).
 
 
 - **Reset Database & Clean Images:**
