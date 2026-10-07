@@ -74,7 +74,22 @@ async def generate_daily_recap(bot, manual_date=None, is_manual=False, reply_to_
                 await bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=caption_text, reply_markup=keyboard, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Error sending recap collage photo to admin: {e}")
-            await bot.send_message(chat_id=ADMIN_CHAT_ID, text=caption_text, reply_markup=keyboard, parse_mode="HTML")
+            err_str = str(e).lower()
+            sent_retry = False
+            if "photo_invalid_dimensions" in err_str or "dimensions" in err_str or "too large" in err_str:
+                try:
+                    logger.info("Attempting emergency recompression of recap collage...")
+                    from utils.image_utils import compress_existing_image_file
+                    fallback_path = compress_existing_image_file(collage_path, max_dim_sum=5000, max_single_dim=3000, target_max_bytes=1_000_000)
+                    if fallback_path:
+                        with open(fallback_path, 'rb') as f:
+                            await bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=f, caption=caption_text, reply_markup=keyboard, parse_mode="HTML")
+                        sent_retry = True
+                except Exception as retry_err:
+                    logger.error(f"Error sending emergency re-compressed recap collage photo: {retry_err}")
+
+            if not sent_retry:
+                await bot.send_message(chat_id=ADMIN_CHAT_ID, text=caption_text, reply_markup=keyboard, parse_mode="HTML")
     else:
         await bot.send_message(chat_id=ADMIN_CHAT_ID, text=caption_text, reply_markup=keyboard, parse_mode="HTML")
         

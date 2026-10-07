@@ -1,6 +1,7 @@
 import os
 import shutil
 import uuid
+import io
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 from pilmoji import Pilmoji
 import logging
@@ -9,6 +10,16 @@ from datetime import datetime
 from core.config import FONTS_DIR, MAX_EVENTS_PER_ROW
 
 logger = logging.getLogger(__name__)
+
+# Telegram sendPhoto requirements:
+# 1. Total width + height <= 10000 px (Bad Request: PHOTO_INVALID_DIMENSIONS).
+# 2. Width <= 10000 px, Height <= 10000 px.
+# 3. Ratio max(w, h) / min(w, h) <= 20.
+# 4. Max file size: 10 MB.
+# Safe operational limits for GdG recap collages:
+MAX_PHOTO_DIMENSION_SUM = 8500
+MAX_PHOTO_SINGLE_DIMENSION = 5000
+MAX_PHOTO_FILE_SIZE = 1_800_000  # ~1.8 MB
 
 def get_daily_dir(base_dir, date_str=None):
     if date_str:
@@ -115,7 +126,7 @@ def build_horizontal_collage(images, max_per_row=None):
         resized_images.append(im.resize((new_width, avg_height), Image.Resampling.LANCZOS))
 
     if max_per_row is None:
-        max_per_row = MAX_EVENTS_PER_ROW
+        max_per_row = MAX_EVENTS_PER_ROW if MAX_EVENTS_PER_ROW > 0 else 4
 
     if not max_per_row or max_per_row <= 0:
         max_per_row = len(resized_images)
@@ -141,6 +152,137 @@ def build_horizontal_collage(images, max_per_row=None):
 
     return collage
 
+def compress_image_to_bytes(
+    image,
+    max_dim_sum=MAX_PHOTO_DIMENSION_SUM,
+    max_single_dim=MAX_PHOTO_SINGLE_DIMENSION,
+    target_max_bytes=MAX_PHOTO_FILE_SIZE,
+    initial_quality=85
+):
+    """
+    Compresses and resizes a PIL Image so that:
+    1. Sum of width + height does not exceed max_dim_sum (Telegram limit is 10,000 px).
+    2. Neither width nor height exceeds max_single_dim.
+    3. File size does not exceed target_max_bytes via progressive JPEG quality reduction
+       and downscaling if necessary.
+    Returns:
+        bytes: Compressed JPEG bytes, or None on failure.
+    """
+    if not image:
+        return None
+
+    try:
+        cur_img = image
+        if cur_img.mode != 'RGB':
+            cur_img = cur_img.convert('RGB')
+
+        # 1. Enforce Telegram dimension limits
+        w, h = cur_img.width, cur_img.height
+        scale = 1.0
+        if (w + h) > max_dim_sum:
+            scale = min(scale, max_dim_sum / (w + h))
+        if max(w, h) > max_single_dim:
+            scale = min(scale, max_single_dim / max(w, h))
+
+        if scale < 1.0:
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
+            cur_img = cur_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            logger.info(f"Image resized from {w}x{h} to {new_w}x{new_h} (sum: {new_w + new_h}) to satisfy Telegram photo dimension constraints.")
+
+        # 2. Quality reduction loop to enforce file size
+        qualities = [initial_quality, 75, 65, 55, 45, 35]
+        qualities = [q for q in qualities if q <= initial_quality]
+        if not qualities or qualities[0] != initial_quality:
+            qualities.insert(0, initial_quality)
+
+        best_bytes = None
+        for q in qualities:
+            buf = io.BytesIO()
+            cur_img.save(buf, format='JPEG', quality=q, optimize=True)
+            data = buf.getvalue()
+            best_bytes = data
+            if len(data) <= target_max_bytes:
+                if q < initial_quality:
+                    logger.info(f"Image compressed at quality {q} ({len(data)} bytes, target <= {target_max_bytes}).")
+                return data
+
+        # 3. If still exceeding target_max_bytes after q=35, downscale iteratively
+        while (cur_img.width > 600 and cur_img.height > 600) and len(best_bytes) > target_max_bytes:
+            cur_img = cur_img.resize(
+                (max(1, int(cur_img.width * 0.8)), max(1, int(cur_img.height * 0.8))),
+                Image.Resampling.LANCZOS
+            )
+            for q in [65, 45, 30]:
+                buf = io.BytesIO()
+                cur_img.save(buf, format='JPEG', quality=q, optimize=True)
+                data = buf.getvalue()
+                best_bytes = data
+                if len(data) <= target_max_bytes:
+                    logger.info(f"Image downscaled to {cur_img.width}x{cur_img.height} and compressed at quality {q} ({len(data)} bytes).")
+                    return data
+
+        return best_bytes
+
+    except Exception as e:
+        logger.error(f"Error compressing image: {e}")
+        return None
+
+def save_compressed_image(
+    image,
+    filepath,
+    max_dim_sum=MAX_PHOTO_DIMENSION_SUM,
+    max_single_dim=MAX_PHOTO_SINGLE_DIMENSION,
+    target_max_bytes=MAX_PHOTO_FILE_SIZE,
+    initial_quality=85
+):
+    """
+    Compresses a PIL Image and saves it as JPEG to filepath.
+    """
+    try:
+        data = compress_image_to_bytes(
+            image,
+            max_dim_sum=max_dim_sum,
+            max_single_dim=max_single_dim,
+            target_max_bytes=target_max_bytes,
+            initial_quality=initial_quality
+        )
+        if not data:
+            return None
+        with open(filepath, 'wb') as f:
+            f.write(data)
+        return filepath
+    except Exception as e:
+        logger.error(f"Error saving compressed image to {filepath}: {e}")
+        return None
+
+def compress_existing_image_file(
+    filepath,
+    max_dim_sum=MAX_PHOTO_DIMENSION_SUM,
+    max_single_dim=MAX_PHOTO_SINGLE_DIMENSION,
+    target_max_bytes=MAX_PHOTO_FILE_SIZE
+):
+    """
+    Compresses an existing image file on disk in-place.
+    """
+    if not filepath or not os.path.exists(filepath):
+        return None
+    try:
+        with Image.open(filepath) as im:
+            data = compress_image_to_bytes(
+                im,
+                max_dim_sum=max_dim_sum,
+                max_single_dim=max_single_dim,
+                target_max_bytes=target_max_bytes
+            )
+        if data:
+            with open(filepath, 'wb') as f:
+                f.write(data)
+            return filepath
+    except Exception as e:
+        logger.error(f"Error compressing existing image file {filepath}: {e}")
+    return None
+
 def create_collage(image_paths, output_dir, date_str=None):
     if not image_paths:
         return None
@@ -160,8 +302,7 @@ def create_collage(image_paths, output_dir, date_str=None):
         daily_dir = get_daily_dir(output_dir, date_str)
         filename = f"collage_{uuid.uuid4()}.jpg"
         filepath = os.path.join(daily_dir, filename)
-        collage.save(filepath)
-        return filepath
+        return save_compressed_image(collage, filepath)
     except Exception as e:
         logger.error(f"Error creating collage: {e}")
         return None
@@ -177,7 +318,6 @@ def create_collage_from_bytes(images_bytes_list):
         return images_bytes_list[0]
 
     try:
-        import io
         images = []
         for b in images_bytes_list:
             if b:
@@ -189,9 +329,7 @@ def create_collage_from_bytes(images_bytes_list):
         if not collage:
             return None
 
-        out_buf = io.BytesIO()
-        collage.save(out_buf, format='JPEG', quality=95)
-        return out_buf.getvalue()
+        return compress_image_to_bytes(collage, initial_quality=95)
     except Exception as e:
         logger.error(f"Error creating collage from bytes: {e}")
         return None
