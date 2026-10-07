@@ -73,5 +73,8 @@ Se hai bisogno di forzare l'aggiunta o la rimozione di un utente (ad esempio se 
 La prenotazione e la consultazione dei tavoli per i giocatori è semplicissima:
 - **Per Consultare gli Eventi (`/event_next`):** Invia `/event_next` in chat privata col bot, clicca sul deep link diretto (`https://t.me/GdG_Event_bot?start=event_next`), oppure invialo nel gruppo discussione per visualizzare l'elenco cronologico di tutti gli eventi di oggi e futuri con i rispettivi link ai canali e alle discussioni.
 - **Per Prenotarsi:** Clicca sul pulsante inline **[➕ Prenota]** (oppure **[🚫 Esauriti]** se non ci sono più posti disponibili). Il contatore dei posti si aggiornerà in tempo reale e il bot confermerà la prenotazione taggandoti nei commenti.
-- **Per Vedere gli Iscritti:** Clicca sul pulsante **[👥 Lista]**. Il bot ti aprirà una chat privata mostrando l'elenco completo dei partecipanti senza intasare la chat di gruppo.
+- **Per Vedere gli Iscritti:** 
+  - Clicca sul pulsante **[👥 Lista]** sotto il messaggio dell'evento nel canale o nel gruppo discussione (il bot ti aprirà una chat privata mostrando l'elenco completo dei partecipanti senza intasare la chat di gruppo).
+  - In alternativa, invia manualmente il comando `/event_subs <id>` (oppure `/subs <id>`, es. `/event_subs 42` o `/event_subs_42`).
+  - Inoltre, ogni evento elencato nel riepilogo `/event_next` include sia il deep link diretto sia il comando cliccabile `/event_subs_<id>` per visualizzare immediatamente i partecipanti.
 - **Per Disdire:** Clicca sul pulsante **[➖ Annulla]** per liberare il tuo posto e rimetterlo a disposizione di altri.

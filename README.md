@@ -135,7 +135,7 @@ python3 main.py
 - Users click `[➕ Prenota]` on a channel post or discussion group reply to reserve a seat (or see `[🚫 Esauriti]` if full).
 - Clicks increment personal seat reservation count in SQLite.
 - The post message dynamically updates (`Posti: X/Y` or `0/Y Completo`), and the bot sends a reply to the post announcing the reservation.
-- Users click `[👥 Lista]` to open a private DM with the bot and view the full list of participants without spamming the group.
+- Users click `[👥 Lista]` to open a private DM with the bot and view the full list of participants without spamming the group, or manually call `/event_subs <id>` (or `/subs <id>`, or `/event_subs_<id>`).
 - **Same-Day Conflict Warning:** If a user reserves a seat on an event while already subscribed to another valid event (not cancelled or unsubscribed) scheduled for the same day, the bot processes the reservation normally and immediately posts a warning in the discussion chat. The warning tags the user, lists the conflicting event(s) with titles and direct message links, and reminds the user to release their seat from whichever event they decide not to attend.
 - Users click `[➖ Annulla]` to release reserved seats.
 
@@ -179,7 +179,8 @@ In `ADMIN_CHAT_ID`, each event card includes a `[👥 Gestisci Iscritti]` button
 
 
 ### 7. Event Overview & Bot Control Commands
-- `/event_next`: Public command displaying today's and upcoming events in chronological order, with quick links to message and discussion chat. Accessible by any user in 1-on-1 private chat with the bot, via deep link (`t.me/{bot_username}?start=event_next`), in `ADMIN_CHAT_ID`, and in `DISCUSSION_GROUP_ID` (can be disabled in the discussion group via `ALLOW_GROUP_EVENT_NEXT=false` to prevent spam).
+- `/event_next`: Public command displaying today's and upcoming events in chronological order, with quick links to message, discussion chat, and direct participant list deep links / `/event_subs_<id>` commands. Accessible by any user in 1-on-1 private chat with the bot, via deep link (`t.me/{bot_username}?start=event_next`), in `ADMIN_CHAT_ID`, and in `DISCUSSION_GROUP_ID` (can be disabled in the discussion group via `ALLOW_GROUP_EVENT_NEXT=false` to prevent spam).
+- `/event_subs <id>` (or `/subs <id>` / `/event_subs_<id>`): Public command to check the participant list for an event by ID.
 
 In `ADMIN_CHAT_ID` only:
 - `/bot_pause`: Pauses public channel monitoring (bot becomes "blind" and will not intercept or delete events posted to the channel).

@@ -1419,5 +1419,110 @@ class TestUnpublishedEventSubscribers(unittest.IsolatedAsyncioTestCase):
             context.bot.send_message.assert_not_called()
 
 
+class TestEventSubsCommand(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.test_db_path = os.path.join(self.temp_dir.name, "test_events.db")
+        self.orig_db_path = db.DB_PATH
+        db.DB_PATH = self.test_db_path
+        db.init_db()
+
+        self.event_id = db.insert_event({
+            "title": "Trono di Spade",
+            "date": "Venerdì 21:00",
+            "max_seats": 6,
+            "booked_seats": 2,
+        }, None, "raw text")
+        db.book_seat(self.event_id, 100, "player1", "Giocatore Uno")
+        db.book_seat(self.event_id, 200, "player2", "Giocatore Due")
+
+    def tearDown(self):
+        db.DB_PATH = self.orig_db_path
+        self.temp_dir.cleanup()
+
+    async def test_event_subs_command_with_arg(self):
+        from bot.handlers import event_subs_command
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = [str(self.event_id)]
+
+        await event_subs_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        self.assertIn("Trono di Spade", text)
+        self.assertIn("@player1", text)
+        self.assertIn("@player2", text)
+
+    async def test_event_subs_command_with_regex_text(self):
+        from bot.handlers import event_subs_command
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.message.text = f"/event_subs_{self.event_id}"
+        context = MagicMock()
+        context.args = []
+
+        await event_subs_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        self.assertIn("Trono di Spade", text)
+
+    async def test_event_subs_command_with_subs_alias_text(self):
+        from bot.handlers import event_subs_command
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.message.text = f"/subs_{self.event_id}"
+        context = MagicMock()
+        context.args = []
+
+        await event_subs_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        self.assertIn("Trono di Spade", text)
+
+    async def test_event_subs_command_missing_arg(self):
+        from bot.handlers import event_subs_command
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        update.message.text = "/event_subs"
+        context = MagicMock()
+        context.args = []
+
+        await event_subs_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        self.assertIn("Specifica l'ID", text)
+
+    async def test_event_subs_command_invalid_arg(self):
+        from bot.handlers import event_subs_command
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = ["invalid_number"]
+
+        await event_subs_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        self.assertIn("ID evento non valido", text)
+
+    async def test_event_subs_command_event_not_found(self):
+        from bot.handlers import event_subs_command
+        update = MagicMock()
+        update.message.reply_text = AsyncMock()
+        context = MagicMock()
+        context.args = ["999999"]
+
+        await event_subs_command(update, context)
+
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        self.assertIn("non trovato", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,7 +15,7 @@ from bot.handlers import (
     handle_discussion_forward, event_edit_command, bot_pause_command, 
     bot_resume_command, bot_status_command, event_next_command,
     event_sub_add_command, event_sub_remove_command, handle_admin_reply,
-    cache_admin_media_group, start_command
+    cache_admin_media_group, start_command, event_subs_command
 )
 from bot.event_generator import event_generate_command
 from bot.callbacks import handle_approval
@@ -46,6 +46,7 @@ async def post_init(application: Application):
     default_commands = [
         BotCommand("start", "Avvia il bot e visualizza info o iscritti"),
         BotCommand("event_next", "Mostra gli eventi di oggi e futuri"),
+        BotCommand("event_subs", "<id> Mostra gli iscritti di un evento"),
     ]
 
     # Admin commands available in ADMIN_CHAT_ID with syntax descriptions
@@ -121,6 +122,8 @@ def main():
     application.add_handler(CommandHandler("event_generate", event_generate_command, block=False))
     application.add_handler(CommandHandler("eg", event_generate_command, block=False))
     application.add_handler(CommandHandler("event_next", event_next_command))
+    application.add_handler(CommandHandler(["event_subs", "subs"], event_subs_command))
+    application.add_handler(MessageHandler(filters.Regex(r"^/(?:event_subs|subs)(?:_\d+|\s+\d+|$)") | filters.CaptionRegex(r"^/(?:event_subs|subs)(?:_\d+|\s+\d+|$)"), event_subs_command))
     application.add_handler(CommandHandler("recap_generate", manual_recap_command))
     application.add_handler(CommandHandler("rg", manual_recap_command))
     application.add_handler(CommandHandler("bot_pause", bot_pause_command))

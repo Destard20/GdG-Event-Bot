@@ -18,7 +18,10 @@ from core.db import (
     admin_remove_subscriber,
     get_reservation_by_user,
 )
-from core.config import DATA_DIR, ADMIN_CHAT_ID, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID, ALLOW_GROUP_EVENT_NEXT
+from core.config import (
+    DATA_DIR, ADMIN_CHAT_ID, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID,
+    ALLOW_GROUP_EVENT_NEXT, TELEGRAM_BOT_USERNAME
+)
 from utils.image_utils import save_image_locally, create_collage_from_bytes, delete_local_image, move_image_locally
 from utils.templates import format_instagram_story, format_public_event_message
 from utils.date_utils import parse_user_date, format_standard_event_date, validate_event_date_anomalies
@@ -131,6 +134,14 @@ async def event_next_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if ev.get('message_link'):
             links.append(f'<a href="{ev["message_link"]}">Canale Eventi</a>')
 
+        # Subscribers deep link and command
+        bot_user = getattr(getattr(context, 'bot', None), 'username', None) or TELEGRAM_BOT_USERNAME
+        if bot_user:
+            clean_username = bot_user.lstrip('@')
+            links.append(f'<a href="https://t.me/{clean_username}?start=subs_{ev_id}">👥 Iscritti</a> (/event_subs_{ev_id})')
+        else:
+            links.append(f'👥 Iscritti: /event_subs_{ev_id}')
+
         links_str = " | ".join(links) if links else "Nessun link disponibile"
 
         entry = (
@@ -149,6 +160,47 @@ async def event_next_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if chunk.strip():
         await message.reply_text(chunk, parse_mode="HTML", disable_web_page_preview=True)
+
+
+async def event_subs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return
+
+    event_id_str = None
+    if context.args and len(context.args) > 0:
+        event_id_str = context.args[0]
+    else:
+        text = (message.text or message.caption or "").strip()
+        m = re.match(r"^/(?:event_subs|subs)(?:_|\s+)(\d+)", text, re.IGNORECASE)
+        if m:
+            event_id_str = m.group(1)
+
+    if not event_id_str:
+        await message.reply_text("❌ Specifica l'ID dell'evento (es. /event_subs 123 o /subs 123).")
+        return
+
+    try:
+        event_id = int(event_id_str)
+    except ValueError:
+        await message.reply_text("❌ ID evento non valido. Deve essere un numero intero.")
+        return
+
+    from core.db import get_event, get_reservations_for_event
+    from utils.templates import format_event_participants_message
+
+    event = get_event(event_id)
+    if not event:
+        await message.reply_text("❌ Evento non trovato o già rimosso.")
+        return
+
+    reservations = get_reservations_for_event(event_id)
+    text = format_event_participants_message(event, reservations)
+    await message.reply_text(
+        text,
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
