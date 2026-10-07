@@ -250,6 +250,23 @@ All maintenance utilities are located in the `scripts/` directory:
   python3 scripts/generate_story.py 1 --publish-ig
   ```
 
+- **Fix / Synchronize Inline Keyboards:**
+  ```bash
+  # Synchronize keyboards across all event messages (Channel, Discussion, Admin):
+  python3 scripts/fix_event_keyboards.py
+
+  # Fix keyboards for a single event by ID:
+  python3 scripts/fix_event_keyboards.py --event-id 42
+
+  # Fix events from a specific ID onwards:
+  python3 scripts/fix_event_keyboards.py --since-id 30
+
+  # Simulate without modifying messages (dry-run):
+  python3 scripts/fix_event_keyboards.py --dry-run
+  ```
+  Synchronizes inline callback buttons (`book_{id}`, `unbook_{id}`, `start=subs_{id}`, `manage_subs_{id}`) across Telegram channel posts, discussion replies, and admin messages to match their current database IDs.
+
+
 - **Reset Database & Clean Images:**
   ```bash
   python3 scripts/clean_db.py
