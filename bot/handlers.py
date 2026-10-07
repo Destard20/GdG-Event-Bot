@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import html
+import uuid
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
 import logging
@@ -17,6 +18,13 @@ from core.db import (
     admin_add_subscriber,
     admin_remove_subscriber,
     get_reservation_by_user,
+    insert_scheduled_event,
+    get_scheduled_event,
+    get_all_scheduled_events,
+    update_scheduled_event_specific_date,
+    update_scheduled_event_content,
+    get_scheduled_events_for_date,
+    delete_scheduled_event,
 )
 from core.config import (
     DATA_DIR, ADMIN_CHAT_ID, PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID,
@@ -25,7 +33,7 @@ from core.config import (
 from utils.image_utils import save_image_locally, create_collage_from_bytes, delete_local_image, move_image_locally
 from utils.templates import format_instagram_story, format_public_event_message
 from utils.date_utils import parse_user_date, format_standard_event_date, validate_event_date_anomalies
-from bot.keyboards import get_approval_keyboard, get_event_booking_keyboard
+from bot.keyboards import get_approval_keyboard, get_event_booking_keyboard, get_schedule_repost_keyboard
 from bot.service import update_event_messages, send_admin_action_notice
 
 logger = logging.getLogger(__name__)
@@ -138,9 +146,9 @@ async def event_next_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         bot_user = getattr(getattr(context, 'bot', None), 'username', None) or TELEGRAM_BOT_USERNAME
         if bot_user:
             clean_username = bot_user.lstrip('@')
-            links.append(f'<a href="https://t.me/{clean_username}?start=subs_{ev_id}">👥 Iscritti</a> (/event_subs_{ev_id})')
+            links.append(f'<a href="https://t.me/{clean_username}?start=subs_{ev_id}">👥 Iscritti</a> (/event_subs {ev_id})')
         else:
-            links.append(f'👥 Iscritti: /event_subs_{ev_id}')
+            links.append(f'👥 Iscritti: /event_subs {ev_id}')
 
         links_str = " | ".join(links) if links else "Nessun link disponibile"
 
@@ -629,7 +637,7 @@ def contains_event_keywords(text: str) -> bool:
         return False
     return any(pattern.search(text) for pattern in EVENT_KEYWORD_PATTERNS)
 
-async def handle_event_extraction(text, image_bytes, context, message_link=None, telegram_message_id=None, is_manual_trigger=False, delete_callback=None):
+async def handle_event_extraction(text, image_bytes, context, message_link=None, telegram_message_id=None, is_manual_trigger=False, delete_callback=None, override_date=None, override_seats=None):
     if not text:
         return False
 
@@ -650,6 +658,34 @@ async def handle_event_extraction(text, image_bytes, context, message_link=None,
     if not event_data or event_data.get('is_event') is False:
         logger.info("Message is not an event or could not be parsed.")
         return False
+
+    if override_date:
+        parsed = parse_user_date(override_date)
+        if parsed:
+            dt, has_time = parsed
+            formatted_date, norm_date = format_standard_event_date(dt, has_time)
+            event_data['date'] = formatted_date
+            event_data['normalized_date'] = norm_date
+
+    if override_seats:
+        val_clean = str(override_seats).strip().lower()
+        if val_clean in ["null", "nessuno", "illimitati", "0", "none"]:
+            event_data['max_seats'] = None
+            event_data['seats'] = "Illimitati"
+        else:
+            try:
+                if "/" in val_clean:
+                    parts = val_clean.split("/")
+                    free = int(parts[0])
+                    total = int(parts[1])
+                else:
+                    free = int(val_clean)
+                    total = free
+                event_data['max_seats'] = total
+                event_data['seats'] = f"{free}/{total}"
+            except ValueError:
+                pass
+        event_data['booked_seats'] = 0
 
     if delete_callback:
         try:
@@ -1352,4 +1388,425 @@ async def event_sub_remove_command(update: Update, context: ContextTypes.DEFAULT
     else:
         logger.warning(f"{admin_identifier} failed to remove subscriber {username} from event #{event_id} via /event_sub_remove: {msg}")
         await update.message.reply_text(f"❌ {msg}")
+
+async def _extract_content_from_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Extracts text and image bytes from update (either replied-to message or the message itself),
+    with fallback to database if the message was an existing event.
+    Returns (text, image_bytes, target_msg).
+    """
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return None, None, None
+
+    target_msg = message.reply_to_message if message.reply_to_message else message
+    
+    text = target_msg.text or target_msg.caption
+    image_bytes = await _extract_image_bytes_from_update(update)
+
+    ev_id = extract_event_id_from_reply(target_msg)
+    if ev_id:
+        ev = get_event(ev_id)
+        if ev:
+            if not text:
+                text = ev.get('original_text') or ev.get('description')
+            if not image_bytes and ev.get('image_path') and os.path.exists(ev['image_path']):
+                try:
+                    with open(ev['image_path'], 'rb') as f:
+                        image_bytes = bytearray(f.read())
+                except Exception as e:
+                    logger.warning(f"Failed to read image from DB image_path: {e}")
+
+    return text, image_bytes, target_msg
+
+def format_schedule_repost_message(scheduled_event):
+    sched_id = scheduled_event['id']
+    title = scheduled_event.get('title') or "Evento"
+    days = scheduled_event.get('schedule_days') or []
+    days_str = ", ".join(days) if days else "Nessuno (seleziona con i pulsanti sotto)"
+    spec_date = scheduled_event.get('specific_date') or "Nessuna data specifica"
+
+    return (
+        f"📅 <b>Programmazione Repost Evento #{sched_id}</b>\n"
+        f"🏷️ <b>Titolo:</b> {html.escape(title)}\n\n"
+        f"🗓️ <b>Giorni settimanali attivi:</b> {days_str}\n"
+        f"📌 <b>Data specifica impostata:</b> {spec_date}\n\n"
+        f"Tocca i pulsanti in basso per attivare/disattivare i giorni in cui ripubblicare l'evento.\n\n"
+        f"👉 Per programmare una data specifica (stessa sintassi di /event_edit_date):\n"
+        f"<code>/event_repost_schedule {sched_id} DD-MM-YYYY [HH:MM]</code>\n"
+        f"(es. <code>/event_repost_schedule {sched_id} 09-10-2026 21:00</code>)"
+    )
+
+async def event_repost_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return
+
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        await message.reply_text("Non sei autorizzato.")
+        return
+
+    if not message.reply_to_message:
+        await message.reply_text(
+            "❌ Rispondi al messaggio dell'evento che vuoi ripubblicare.\n"
+            "Uso: <code>/event_repost DATE SEATS</code>\n"
+            "Esempi:\n"
+            "• <code>/event_repost oggi 4</code>\n"
+            "• <code>/event_repost LUN 4</code>\n"
+            "• <code>/event_repost MER 21:00 4</code>\n"
+            "• <code>/event_repost 15-10-2026 21:00 4</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    cmd_raw = message.text or message.caption or ""
+    text_parts = cmd_raw.split(maxsplit=1)
+    args_str = text_parts[1].strip() if len(text_parts) > 1 else ""
+    tokens = args_str.split()
+    if len(tokens) < 2:
+        await message.reply_text(
+            "❌ Parametri mancanti.\n"
+            "Uso: <code>/event_repost DATE SEATS</code>\n"
+            "Esempi:\n"
+            "• <code>/event_repost oggi 4</code>\n"
+            "• <code>/event_repost LUN 4</code>\n"
+            "• <code>/event_repost MER 21:00 4</code>\n"
+            "• <code>/event_repost 15-10-2026 21:00 4</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    seats_arg = tokens[-1]
+    date_arg = " ".join(tokens[:-1])
+
+    parsed = parse_user_date(date_arg)
+    if not parsed:
+        await message.reply_text(
+            "❌ Formato data non valido.\n"
+            "Puoi usare: 'oggi', 'LUN', 'MER', 'VEN', oppure DD-MM-YYYY (con orario opzionale, es. 'MER 21:00' o '15-10-2026 21:00')."
+        )
+        return
+
+    text, image_bytes, target_msg = await _extract_content_from_target(update, context)
+    if not text:
+        await message.reply_text("❌ Nessun testo trovato nel messaggio risposto.")
+        return
+
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+    logger.info(f"{admin_identifier} triggered /event_repost with date='{date_arg}', seats='{seats_arg}'.")
+
+    success = await handle_event_extraction(
+        text=text,
+        image_bytes=image_bytes,
+        context=context,
+        message_link=getattr(target_msg, "link", None),
+        telegram_message_id=getattr(target_msg, "message_id", None),
+        is_manual_trigger=True,
+        override_date=date_arg,
+        override_seats=seats_arg
+    )
+    if success:
+        await message.reply_text("✅ Evento ripubblicato ed elaborato! Conferma la pubblicazione con i pulsanti sopra.")
+
+async def event_repost_schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return
+
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        await message.reply_text("Non sei autorizzato.")
+        return
+
+    cmd_raw = message.text or message.caption or ""
+    text_parts = cmd_raw.split(maxsplit=1)
+    args_str = text_parts[1].strip() if len(text_parts) > 1 else ""
+
+    tokens = args_str.split()
+    if tokens and tokens[0].isdigit():
+        sched_id = int(tokens[0])
+        sched_ev = get_scheduled_event(sched_id)
+        if sched_ev:
+            if len(tokens) > 1:
+                date_val = " ".join(tokens[1:])
+                parsed = parse_user_date(date_val)
+                if not parsed:
+                    await message.reply_text("❌ Formato data non valido per la programmazione specifica.")
+                    return
+                dt, has_time = parsed
+                formatted_d, _ = format_standard_event_date(dt, has_time)
+                update_scheduled_event_specific_date(sched_id, formatted_d)
+                sched_ev = get_scheduled_event(sched_id)
+                msg_text = format_schedule_repost_message(sched_ev)
+                kb = get_schedule_repost_keyboard(sched_id, sched_ev.get('schedule_days'))
+                await message.reply_text(f"✅ Data specifica aggiornata!\n\n{msg_text}", reply_markup=kb, parse_mode="HTML")
+                return
+            else:
+                msg_text = format_schedule_repost_message(sched_ev)
+                kb = get_schedule_repost_keyboard(sched_id, sched_ev.get('schedule_days'))
+                await message.reply_text(msg_text, reply_markup=kb, parse_mode="HTML")
+                return
+
+    if not message.reply_to_message:
+        await message.reply_text(
+            "❌ Rispondi al messaggio dell'evento che vuoi programmare per il repost.\n"
+            "Uso: <code>/event_repost_schedule [DATA HH:MM]</code>\n"
+            "Esempi:\n"
+            "• <code>/event_repost_schedule</code> (mostra i giorni di apertura)\n"
+            "• <code>/event_repost_schedule 09-10-2026 21:00</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    text, image_bytes, target_msg = await _extract_content_from_target(update, context)
+    if not text:
+        await message.reply_text("❌ Nessun testo trovato nel messaggio risposto.")
+        return
+
+    specific_date_val = None
+    if args_str:
+        parsed = parse_user_date(args_str)
+        if not parsed:
+            await message.reply_text("❌ Formato data specifica non valido. Usa DD-MM-YYYY [HH:MM] o oggi/LUN/MER/VEN.")
+            return
+        dt, has_time = parsed
+        specific_date_val, _ = format_standard_event_date(dt, has_time)
+
+    saved_img_path = None
+    if image_bytes:
+        sched_dir = os.path.join(DATA_DIR, "scheduled")
+        os.makedirs(sched_dir, exist_ok=True)
+        img_filename = f"sched_{uuid.uuid4().hex[:8]}.jpg"
+        saved_img_path = os.path.join(sched_dir, img_filename)
+        try:
+            with open(saved_img_path, "wb") as f:
+                f.write(image_bytes)
+        except Exception as e:
+            logger.error(f"Error saving scheduled image: {e}")
+            saved_img_path = None
+
+    title = "Evento"
+    ev_id = extract_event_id_from_reply(target_msg)
+    if ev_id:
+        ev = get_event(ev_id)
+        if ev and ev.get('title'):
+            title = ev['title']
+    if title == "Evento":
+        first_line = text.strip().split("\n")[0]
+        title = first_line[:50]
+
+    scheduled_id = insert_scheduled_event(
+        title=title,
+        text=text,
+        image_path=saved_img_path,
+        schedule_days=[],
+        specific_date=specific_date_val
+    )
+
+    if not scheduled_id:
+        await message.reply_text("❌ Errore durante il salvataggio della programmazione nel database.")
+        return
+
+    sched_ev = get_scheduled_event(scheduled_id)
+    msg_text = format_schedule_repost_message(sched_ev)
+    kb = get_schedule_repost_keyboard(scheduled_id, [])
+
+    if saved_img_path and os.path.exists(saved_img_path):
+        try:
+            with open(saved_img_path, "rb") as f:
+                await message.reply_photo(photo=f, caption=msg_text, reply_markup=kb, parse_mode="HTML")
+                return
+        except Exception as e:
+            logger.warning(f"Failed to send scheduled event preview photo: {e}")
+
+    await message.reply_text(msg_text, reply_markup=kb, parse_mode="HTML")
+
+async def event_repost_invoke_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return
+
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        await message.reply_text("Non sei autorizzato.")
+        return
+
+    cmd_raw = message.text or message.caption or ""
+    text_parts = cmd_raw.split()
+    if len(text_parts) < 2 or not text_parts[1].isdigit():
+        await message.reply_text("❌ Specifica l'ID dell'evento programmato (es. /event_repost_invoke 123).")
+        return
+
+    sched_id = int(text_parts[1])
+    sched_ev = get_scheduled_event(sched_id)
+    if not sched_ev:
+        await message.reply_text(f"❌ Evento programmato #{sched_id} non trovato.")
+        return
+
+    text = sched_ev.get('text')
+    if not text:
+        await message.reply_text("❌ L'evento programmato non contiene testo.")
+        return
+
+    image_bytes = None
+    img_path = sched_ev.get('image_path')
+    if img_path and os.path.exists(img_path):
+        try:
+            with open(img_path, "rb") as f:
+                image_bytes = bytearray(f.read())
+        except Exception as e:
+            logger.warning(f"Failed to read image for scheduled event #{sched_id}: {e}")
+
+    override_date = "oggi"
+    spec = sched_ev.get('specific_date')
+    if spec:
+        m_time = re.search(r'\b(\d{1,2}:\d{2})\b', spec)
+        if m_time:
+            override_date = f"oggi {m_time.group(1)}"
+
+    # If extra args supplied, e.g. /event_repost_invoke 123 LUN 4
+    override_seats = None
+    if len(text_parts) > 2:
+        extra_tokens = text_parts[2:]
+        if len(extra_tokens) == 1:
+            if extra_tokens[0].isdigit() or "/" in extra_tokens[0]:
+                override_seats = extra_tokens[0]
+            else:
+                override_date = extra_tokens[0]
+        elif len(extra_tokens) >= 2:
+            override_seats = extra_tokens[-1]
+            override_date = " ".join(extra_tokens[:-1])
+
+    success = await handle_event_extraction(
+        text=text,
+        image_bytes=image_bytes,
+        context=context,
+        is_manual_trigger=True,
+        override_date=override_date,
+        override_seats=override_seats
+    )
+    if success:
+        await message.reply_text(f"✅ Evento programmato #{sched_id} invocato e pronto per la revisione!")
+
+async def event_repost_update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return
+
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        await message.reply_text("Non sei autorizzato.")
+        return
+
+    if not message.reply_to_message:
+        await message.reply_text(
+            "❌ Rispondi al messaggio dell'evento con cui vuoi aggiornare la programmazione.\n"
+            "Uso: <code>/event_repost_update SCHEDULED_ID</code> (es. <code>/event_repost_update 1</code>)",
+            parse_mode="HTML"
+        )
+        return
+
+    cmd_raw = message.text or message.caption or ""
+    text_parts = cmd_raw.split()
+    if len(text_parts) < 2 or not text_parts[1].isdigit():
+        await message.reply_text("❌ Specifica l'ID dell'evento programmato da aggiornare (es. /event_repost_update 1).")
+        return
+
+    sched_id = int(text_parts[1])
+    sched_ev = get_scheduled_event(sched_id)
+    if not sched_ev:
+        await message.reply_text(f"❌ Evento programmato #{sched_id} non trovato.")
+        return
+
+    text, image_bytes, target_msg = await _extract_content_from_target(update, context)
+    if not text:
+        await message.reply_text("❌ Nessun testo trovato nel messaggio risposto.")
+        return
+
+    saved_img_path = None
+    if image_bytes:
+        sched_dir = os.path.join(DATA_DIR, "scheduled")
+        os.makedirs(sched_dir, exist_ok=True)
+        img_filename = f"sched_{uuid.uuid4().hex[:8]}.jpg"
+        saved_img_path = os.path.join(sched_dir, img_filename)
+        try:
+            with open(saved_img_path, "wb") as f:
+                f.write(image_bytes)
+        except Exception as e:
+            logger.error(f"Error saving updated scheduled image: {e}")
+            saved_img_path = None
+
+    title = text.strip().split("\n")[0][:50]
+    ev_id = extract_event_id_from_reply(target_msg)
+    if ev_id:
+        ev = get_event(ev_id)
+        if ev and ev.get('title'):
+            title = ev['title']
+
+    ok = update_scheduled_event_content(sched_id, text=text, image_path=saved_img_path, title=title)
+    if ok:
+        await message.reply_text(
+            f"✅ Evento programmato #{sched_id} aggiornato con successo con il nuovo contenuto!",
+            parse_mode="HTML"
+        )
+    else:
+        await message.reply_text("❌ Errore durante l'aggiornamento nel database.")
+
+async def event_repost_list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message if update.message is not None else (update.effective_message or update.channel_post)
+    if not message:
+        return
+
+    if str(update.effective_chat.id) != str(ADMIN_CHAT_ID):
+        await message.reply_text("Non sei autorizzato.")
+        return
+
+    admin_user = update.effective_user
+    admin_identifier = f"Admin {admin_user.id} (@{admin_user.username})" if getattr(admin_user, 'username', None) else f"Admin {getattr(admin_user, 'id', 'unknown')}"
+    logger.info(f"{admin_identifier} requested scheduled reposts list (/event_repost_list).")
+
+    all_events = get_all_scheduled_events()
+    if not all_events:
+        await message.reply_text("📋 Nessun evento programmato per il repost nel database.")
+        return
+
+    lines = [
+        f"📋 <b>Eventi programmati per il reposting ({len(all_events)}):</b>\n"
+    ]
+    for ev in all_events:
+        sched_id = ev['id']
+        title = html.escape(ev.get('title') or "Evento")
+        days = ev.get('schedule_days') or []
+        days_str = ", ".join(days) if days else "Nessuno"
+        spec = ev.get('specific_date') or "Nessuna"
+
+        lines.append(
+            f"• <b>{title}</b> (ID #{sched_id})\n"
+            f"  🗓️ Giorni: {days_str} | Data: {spec}\n"
+            f"  👉 Invia per preparare il post: <code>/event_repost_invoke {sched_id}</code>\n"
+            f"  ⚙️ Gestisci programmazione: <code>/event_repost_schedule {sched_id}</code>\n"
+        )
+
+    lines.append(
+        "💡 <i>Promemoria:</i> Puoi aggiornare il contenuto di un evento programmato rispondendo a un messaggio con il nuovo testo/locandina e usando:\n"
+        "<code>/event_repost_update ID</code>"
+    )
+
+    msg_text = "\n".join(lines)
+    if len(msg_text) > 4000:
+        chunks = []
+        curr = ""
+        for line in lines:
+            if len(curr) + len(line) + 1 > 4000:
+                chunks.append(curr)
+                curr = line + "\n"
+            else:
+                curr += line + "\n"
+        if curr:
+            chunks.append(curr)
+        for chunk in chunks:
+            await message.reply_text(chunk, parse_mode="HTML")
+    else:
+        await message.reply_text(msg_text, parse_mode="HTML")
+
+
+
 

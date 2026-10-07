@@ -15,7 +15,10 @@ from bot.handlers import (
     handle_discussion_forward, event_edit_command, bot_pause_command, 
     bot_resume_command, bot_status_command, event_next_command,
     event_sub_add_command, event_sub_remove_command, handle_admin_reply,
-    cache_admin_media_group, start_command, event_subs_command
+    cache_admin_media_group, start_command, event_subs_command,
+    event_repost_command, event_repost_schedule_command,
+    event_repost_invoke_command, event_repost_update_command,
+    event_repost_list_command
 )
 from bot.event_generator import event_generate_command
 from bot.callbacks import handle_approval
@@ -72,6 +75,11 @@ async def post_init(application: Application):
         BotCommand("event_edit_image", "[ID] Allega nuova foto per la locandina"),
         BotCommand("event_sub_add", "<ID> @username [posti] Aggiunge iscritto"),
         BotCommand("event_sub_remove", "<ID> @username [posti] Rimuove iscritto"),
+        BotCommand("event_repost", "<DATE> <SEATS> Ripubblica evento con nuova data e posti"),
+        BotCommand("event_repost_schedule", "[ID] [DATA HH:MM] Programma ripubblicazione evento"),
+        BotCommand("event_repost_invoke", "<ID> Prepara il post dell'evento programmato"),
+        BotCommand("event_repost_update", "<ID> Aggiorna il contenuto dell'evento programmato"),
+        BotCommand("event_repost_list", "Mostra tutti gli eventi programmati per il repost"),
     ]
 
     try:
@@ -140,12 +148,22 @@ def main():
         application.add_handler(CommandHandler(cmd, event_edit_command, block=False))
     application.add_handler(CommandHandler("event_sub_add", event_sub_add_command))
     application.add_handler(CommandHandler("event_sub_remove", event_sub_remove_command))
+    application.add_handler(CommandHandler(["event_repost", "er"], event_repost_command, block=False))
+    application.add_handler(CommandHandler("event_repost_schedule", event_repost_schedule_command, block=False))
+    application.add_handler(CommandHandler("event_repost_invoke", event_repost_invoke_command, block=False))
+    application.add_handler(CommandHandler("event_repost_update", event_repost_update_command, block=False))
+    application.add_handler(CommandHandler("event_repost_list", event_repost_list_command, block=False))
 
     # Caption command handlers (PTB CommandHandler only matches message.text, not message.caption)
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_edit_"), event_edit_command, block=False))
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_process|ep)(\s|$|@)"), manual_trigger_command, block=False))
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_generate|eg)(\s|$|@)"), event_generate_command, block=False))
     application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(recap_generate|rg)(\s|$|@)"), manual_recap_command))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/(event_repost|er)(\s|$|@)"), event_repost_command, block=False))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_repost_schedule(\s|$|@)"), event_repost_schedule_command, block=False))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_repost_invoke(\s|$|@)"), event_repost_invoke_command, block=False))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_repost_update(\s|$|@)"), event_repost_update_command, block=False))
+    application.add_handler(MessageHandler(filters.CaptionRegex(r"^/event_repost_list(\s|$|@)"), event_repost_list_command, block=False))
     
     # Listen to admin chat for prompt replies and album photos caching
     if ADMIN_CHAT_ID:

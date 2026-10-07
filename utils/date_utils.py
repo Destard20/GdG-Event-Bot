@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 DAYS_IT = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
 
@@ -22,12 +22,25 @@ WEEKDAYS_MAP = {
     "sunday": 6, "sun": 6,
 }
 
-def parse_user_date(date_str: str) -> tuple[datetime, bool] | None:
+KEYWORD_WEEKDAYS = {
+    "lun": 0, "lunedì": 0, "lunedi": 0, "monday": 0, "mon": 0,
+    "mar": 1, "martedì": 1, "martedi": 1, "tuesday": 1, "tue": 1,
+    "mer": 2, "mercoledì": 2, "mercoledi": 2, "wednesday": 2, "wed": 2,
+    "gio": 3, "giovedì": 3, "giovedi": 3, "thursday": 3, "thu": 3,
+    "ven": 4, "venerdì": 4, "venerdi": 4, "friday": 4, "fri": 4,
+    "sab": 5, "sabato": 5, "saturday": 5, "sat": 5,
+    "dom": 6, "domenica": 6, "sunday": 6, "sun": 6,
+}
+
+def parse_user_date(date_str: str, reference_date: date | datetime | None = None) -> tuple[datetime, bool] | None:
     """
     Parses a user-supplied date string.
     Accepted formats:
     - DD-MM-YYYY or DD/MM/YYYY
     - DD-MM-YYYY HH:MM or DD/MM/YYYY HH:MM
+    - "oggi" / "today" [HH:MM] (sets to today's date)
+    - "LUN", "MER", "VEN" (or full weekday name) [HH:MM] (sets to the next occurrence of that weekday,
+      starting from today; if today is that weekday, sets to next week's occurrence).
     Allows single or double digits for day, month, and hour.
     
     Returns (datetime_obj, has_time) or None if format is invalid or date does not exist.
@@ -36,6 +49,40 @@ def parse_user_date(date_str: str) -> tuple[datetime, bool] | None:
         return None
         
     s = date_str.strip()
+
+    # Check for keywords: "oggi" or weekdays (e.g., LUN, MER, VEN)
+    m_kw = re.match(r'^([a-zA-ZàèéìòùÀÈÉÌÒÙ]+)(?:\s+(\d{1,2}):(\d{2}))?$', s)
+    if m_kw:
+        kw = m_kw.group(1).lower()
+        has_time = m_kw.group(2) is not None
+        hour = int(m_kw.group(2)) if has_time else 0
+        minute = int(m_kw.group(3)) if has_time else 0
+
+        ref_dt = datetime.now()
+        if reference_date is not None:
+            if isinstance(reference_date, datetime):
+                ref_dt = reference_date
+            else:
+                ref_dt = datetime.combine(reference_date, datetime.min.time())
+
+        target_date = None
+        if kw in ["oggi", "today"]:
+            target_date = ref_dt.date()
+        elif kw in KEYWORD_WEEKDAYS:
+            target_weekday = KEYWORD_WEEKDAYS[kw]
+            days_ahead = (target_weekday - ref_dt.weekday()) % 7
+            if days_ahead == 0:
+                days_ahead = 7
+            target_date = ref_dt.date() + timedelta(days=days_ahead)
+
+        if target_date is not None:
+            try:
+                dt = datetime(target_date.year, target_date.month, target_date.day, hour, minute)
+                return dt, has_time
+            except ValueError:
+                return None
+
+    # Check for standard calendar date formats: DD-MM-YYYY or DD/MM/YYYY [HH:MM]
     m = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{2}))?$', s)
     if not m:
         return None

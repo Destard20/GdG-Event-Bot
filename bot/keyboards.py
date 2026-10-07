@@ -104,3 +104,32 @@ def get_event_booking_keyboard(event_id, event=None, bot_username=None):
 
     return InlineKeyboardMarkup([row])
 
+def get_schedule_repost_keyboard(scheduled_id, active_days=None):
+    if active_days is None:
+        active_days = []
+    
+    # Normalize active days to lowercase for comparison
+    active_lower = [str(d).strip().lower() for d in active_days]
+
+    def btn_label(key, name):
+        # checked if key or name in active_lower
+        is_checked = key.lower() in active_lower or name.lower() in active_lower
+        icon = "✅" if is_checked else "⬜"
+        return f"{icon} {name}"
+
+    row1 = [
+        InlineKeyboardButton(btn_label("lun", "Lunedì"), callback_data=f"sched_toggle_{scheduled_id}_lun"),
+        InlineKeyboardButton(btn_label("mer", "Mercoledì"), callback_data=f"sched_toggle_{scheduled_id}_mer"),
+        InlineKeyboardButton(btn_label("ven", "Venerdì"), callback_data=f"sched_toggle_{scheduled_id}_ven"),
+    ]
+    row2 = [
+        InlineKeyboardButton(btn_label("sab", "Sabato"), callback_data=f"sched_toggle_{scheduled_id}_sab"),
+        InlineKeyboardButton(btn_label("dom", "Domenica"), callback_data=f"sched_toggle_{scheduled_id}_dom"),
+    ]
+    row3 = [
+        InlineKeyboardButton("🗑️ Elimina", callback_data=f"sched_del_{scheduled_id}"),
+        InlineKeyboardButton("❌ Chiudi", callback_data=f"sched_close_{scheduled_id}"),
+    ]
+    return InlineKeyboardMarkup([row1, row2, row3])
+
+

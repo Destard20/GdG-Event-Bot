@@ -42,13 +42,48 @@ class TestDateUtils(unittest.TestCase):
         self.assertTrue(has_time)
 
     def test_parse_user_date_invalid(self):
-        self.assertIsNone(parse_user_date("venerdi"))
+        self.assertIsNone(parse_user_date("invalid_date_text"))
         self.assertIsNone(parse_user_date("tomorrow"))
         self.assertIsNone(parse_user_date("31-02-2026"))  # Invalid day in Feb
         self.assertIsNone(parse_user_date("05-13-2026"))  # Month 13
         self.assertIsNone(parse_user_date("05-09-2026 25:00"))  # Hour 25
         self.assertIsNone(parse_user_date(""))
         self.assertIsNone(parse_user_date(None))
+
+    def test_parse_user_date_keywords(self):
+        # Suppose reference date is Wednesday 2026-10-07
+        ref_dt = datetime(2026, 10, 7, 10, 0)  # Wednesday (weekday 2)
+
+        # "oggi" without time
+        dt, has_time = parse_user_date("oggi", reference_date=ref_dt)
+        self.assertEqual(dt, datetime(2026, 10, 7, 0, 0))
+        self.assertFalse(has_time)
+
+        # "oggi" with time
+        dt, has_time = parse_user_date("oggi 21:00", reference_date=ref_dt)
+        self.assertEqual(dt, datetime(2026, 10, 7, 21, 0))
+        self.assertTrue(has_time)
+
+        # "MER" when today is Wednesday -> next Wednesday (14 Oct 2026)
+        dt, has_time = parse_user_date("MER", reference_date=ref_dt)
+        self.assertEqual(dt, datetime(2026, 10, 14, 0, 0))
+        self.assertFalse(has_time)
+
+        # "VEN" when today is Wednesday -> this Friday (9 Oct 2026)
+        dt, has_time = parse_user_date("VEN 21:30", reference_date=ref_dt)
+        self.assertEqual(dt, datetime(2026, 10, 9, 21, 30))
+        self.assertTrue(has_time)
+
+        # "LUN" when today is Wednesday -> next Monday (12 Oct 2026)
+        dt, has_time = parse_user_date("LUN", reference_date=ref_dt)
+        self.assertEqual(dt, datetime(2026, 10, 12, 0, 0))
+        self.assertFalse(has_time)
+
+        # Edge case: today is Monday (2026-10-05) and user inputs "LUN"
+        monday_dt = datetime(2026, 10, 5, 12, 0)
+        dt, has_time = parse_user_date("LUN", reference_date=monday_dt)
+        self.assertEqual(dt, datetime(2026, 10, 12, 0, 0))  # Next Monday (+7 days)
+        self.assertFalse(has_time)
 
     def test_format_standard_event_date(self):
         # Sept 5, 2026 is Saturday (Sabato)

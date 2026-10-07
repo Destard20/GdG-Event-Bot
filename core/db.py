@@ -1,6 +1,7 @@
 import sqlite3
 import logging
 import re
+import json
 from core.config import DB_PATH
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,17 @@ def init_db():
                     username TEXT,
                     seats_booked INTEGER DEFAULT 0,
                     full_name TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS scheduled_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT,
+                    text TEXT,
+                    image_path TEXT,
+                    schedule_days TEXT DEFAULT '[]',
+                    specific_date TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             # Check for column migrations on existing databases
@@ -758,6 +770,150 @@ def get_upcoming_events(include_today=True):
         return [item[1] for item in upcoming] + [item[1] for item in undated]
     except Exception as e:
         logger.error(f"Error getting upcoming events: {e}")
+        return []
+
+def insert_scheduled_event(title, text, image_path=None, schedule_days=None, specific_date=None):
+    try:
+        if schedule_days is None:
+            schedule_days = []
+        if isinstance(schedule_days, list):
+            days_json = json.dumps(schedule_days)
+        else:
+            days_json = str(schedule_days)
+
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO scheduled_events (title, text, image_path, schedule_days, specific_date)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (title or '', text or '', image_path, days_json, specific_date))
+            conn.commit()
+            return cursor.lastrowid
+    except Exception as e:
+        logger.error(f"Error inserting scheduled event: {e}")
+        return None
+
+def get_scheduled_event(scheduled_id):
+    try:
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM scheduled_events WHERE id = ?', (scheduled_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            try:
+                res['schedule_days'] = json.loads(res.get('schedule_days') or '[]')
+            except Exception:
+                res['schedule_days'] = []
+            return res
+    except Exception as e:
+        logger.error(f"Error getting scheduled event #{scheduled_id}: {e}")
+        return None
+
+def get_all_scheduled_events():
+    try:
+        with get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM scheduled_events ORDER BY id DESC')
+            rows = cursor.fetchall()
+            result = []
+            for r in rows:
+                ev = dict(r)
+                try:
+                    ev['schedule_days'] = json.loads(ev.get('schedule_days') or '[]')
+                except Exception:
+                    ev['schedule_days'] = []
+                result.append(ev)
+            return result
+    except Exception as e:
+        logger.error(f"Error getting all scheduled events: {e}")
+        return []
+
+def update_scheduled_event_days(scheduled_id, schedule_days):
+    try:
+        days_json = json.dumps(schedule_days if isinstance(schedule_days, list) else [])
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('UPDATE scheduled_events SET schedule_days = ? WHERE id = ?', (days_json, scheduled_id))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error updating schedule_days for scheduled event #{scheduled_id}: {e}")
+        return False
+
+def update_scheduled_event_specific_date(scheduled_id, specific_date):
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('UPDATE scheduled_events SET specific_date = ? WHERE id = ?', (specific_date, scheduled_id))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error updating specific_date for scheduled event #{scheduled_id}: {e}")
+        return False
+
+def update_scheduled_event_content(scheduled_id, text, image_path=None, title=None):
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            if image_path is not None and title is not None:
+                cursor.execute('UPDATE scheduled_events SET text = ?, image_path = ?, title = ? WHERE id = ?', (text, image_path, title, scheduled_id))
+            elif image_path is not None:
+                cursor.execute('UPDATE scheduled_events SET text = ?, image_path = ? WHERE id = ?', (text, image_path, scheduled_id))
+            elif title is not None:
+                cursor.execute('UPDATE scheduled_events SET text = ?, title = ? WHERE id = ?', (text, title, scheduled_id))
+            else:
+                cursor.execute('UPDATE scheduled_events SET text = ? WHERE id = ?', (text, scheduled_id))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error updating content for scheduled event #{scheduled_id}: {e}")
+        return False
+
+def delete_scheduled_event(scheduled_id):
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM scheduled_events WHERE id = ?', (scheduled_id,))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Error deleting scheduled event #{scheduled_id}: {e}")
+        return False
+
+def get_scheduled_events_for_date(date_str, weekday_name):
+    """
+    Returns all scheduled_events that match the given date_str (DD-MM-YYYY)
+    or the Italian weekday name (e.g. 'Lunedì', 'Mercoledì', etc.).
+    """
+    try:
+        all_events = get_all_scheduled_events()
+        matches = []
+        target_tuple = parse_date_tuple(date_str)
+        weekday_clean = weekday_name.strip().lower()
+
+        for ev in all_events:
+            # 1. Check if weekday_name is in schedule_days
+            days = [d.strip().lower() for d in ev.get('schedule_days', []) if isinstance(d, str)]
+            if weekday_clean in days:
+                matches.append(ev)
+                continue
+
+            # 2. Check specific_date
+            spec = ev.get('specific_date')
+            if spec:
+                spec_tuple = parse_date_tuple(spec)
+                if spec_tuple and target_tuple and spec_tuple == target_tuple:
+                    matches.append(ev)
+                elif spec.strip().startswith(date_str):
+                    matches.append(ev)
+
+        return matches
+    except Exception as e:
+        logger.error(f"Error getting scheduled events for date {date_str} ({weekday_name}): {e}")
         return []
 
 

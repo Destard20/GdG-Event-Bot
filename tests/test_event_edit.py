@@ -736,7 +736,7 @@ class TestEventNextCommand(unittest.IsolatedAsyncioTestCase):
         self.assertIn('https://t.me/c/999999/301', reply_text)
         self.assertIn('https://t.me/c/999999/302', reply_text)
         self.assertIn('https://t.me/c/888888/401', reply_text)
-        self.assertIn(f'/event_subs_{ev_today_id}', reply_text)
+        self.assertIn(f'/event_subs {ev_today_id}', reply_text)
         self.assertIn(f'start=subs_{ev_today_id}', reply_text)
 
     async def test_event_next_command_public_private_chat_allowed(self):

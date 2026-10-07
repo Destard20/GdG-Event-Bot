@@ -179,10 +179,15 @@ In `ADMIN_CHAT_ID`, each event card includes a `[👥 Gestisci Iscritti]` button
 
 
 ### 7. Event Overview & Bot Control Commands
-- `/event_next`: Public command displaying today's and upcoming events in chronological order, with quick links to message, discussion chat, and direct participant list deep links / `/event_subs_<id>` commands. Accessible by any user in 1-on-1 private chat with the bot, via deep link (`t.me/{bot_username}?start=event_next`), in `ADMIN_CHAT_ID`, and in `DISCUSSION_GROUP_ID` (can be disabled in the discussion group via `ALLOW_GROUP_EVENT_NEXT=false` to prevent spam).
+- `/event_next`: Public command displaying today's and upcoming events in chronological order, with quick links to message, discussion chat, and direct participant list deep links / `/event_subs <id>` commands. Accessible by any user in 1-on-1 private chat with the bot, via deep link (`t.me/{bot_username}?start=event_next`), in `ADMIN_CHAT_ID`, and in `DISCUSSION_GROUP_ID` (can be disabled in the discussion group via `ALLOW_GROUP_EVENT_NEXT=false` to prevent spam).
 - `/event_subs <id>` (or `/subs <id>` / `/event_subs_<id>`): Public command to check the participant list for an event by ID.
 
 In `ADMIN_CHAT_ID` only:
+- `/event_repost <DATE> <SEATS>`: Repost an event with updated date and seats in a single step (supports calendar dates, `oggi`, and next weekday shortcuts `LUN`, `MER`, `VEN`).
+- `/event_repost_schedule [ID] [DATA HH:MM]`: Set up recurring reposting schedule via opening days checkbox buttons (`Lunedì`, `Mercoledì`, `Venerdì`, `Sabato`, `Domenica`) or schedule a specific date.
+- `/event_repost_invoke <ID>`: Prepares and sends the approval card for a scheduled event for today's reposting.
+- `/event_repost_update <ID>`: In response to a new event post, overwrites the stored template of the specified scheduled event.
+- `/event_repost_list`: Lists all events scheduled for reposting with their IDs and clickable `/event_repost_invoke` commands.
 - `/bot_pause`: Pauses public channel monitoring (bot becomes "blind" and will not intercept or delete events posted to the channel).
 - `/bot_resume`: Resumes public channel monitoring.
 - `/bot_status`: Checks whether the bot is currently active or paused.

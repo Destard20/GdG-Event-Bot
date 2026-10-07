@@ -14,9 +14,12 @@ from core.db import (
     admin_remove_seat,
     admin_add_subscriber,
     admin_remove_subscriber,
+    get_scheduled_event,
+    update_scheduled_event_days,
+    delete_scheduled_event,
 )
 from utils.image_utils import delete_local_image
-from core.config import PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID
+from core.config import PUBLIC_CHANNEL_ID, DISCUSSION_GROUP_ID, ADMIN_CHAT_ID
 from utils.templates import (
     format_public_event_message,
     format_reservation_subscriber_display,
@@ -26,6 +29,7 @@ from bot.keyboards import (
     get_approved_event_keyboard,
     get_cancelled_event_keyboard,
     get_subscribers_management_keyboard,
+    get_schedule_repost_keyboard,
 )
 from bot.service import (
     update_event_messages,
@@ -619,5 +623,69 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.delete()
         except Exception:
             pass
+
+    elif data.startswith("sched_toggle_"):
+        parts = data.split("_")
+        if len(parts) >= 4:
+            scheduled_id = int(parts[2])
+            day_key = parts[3].lower()
+
+            day_map = {
+                "lun": "Lunedì",
+                "mer": "Mercoledì",
+                "ven": "Venerdì",
+                "sab": "Sabato",
+                "dom": "Domenica"
+            }
+            target_day = day_map.get(day_key, day_key.capitalize())
+
+            sched_ev = get_scheduled_event(scheduled_id)
+            if not sched_ev:
+                await query.answer("Evento programmato non trovato.", show_alert=True)
+                return
+
+            current_days = sched_ev.get('schedule_days') or []
+            matching = [d for d in current_days if d.strip().lower() == target_day.lower()]
+            if matching:
+                current_days = [d for d in current_days if d.strip().lower() != target_day.lower()]
+                await query.answer(f"Disattivato: {target_day}")
+            else:
+                current_days.append(target_day)
+                await query.answer(f"Attivato: {target_day}")
+
+            update_scheduled_event_days(scheduled_id, current_days)
+            sched_ev['schedule_days'] = current_days
+
+            from bot.handlers import format_schedule_repost_message
+            new_text = format_schedule_repost_message(sched_ev)
+            kb = get_schedule_repost_keyboard(scheduled_id, current_days)
+
+            try:
+                if query.message.photo:
+                    await query.edit_message_caption(caption=new_text, reply_markup=kb, parse_mode="HTML")
+                else:
+                    await query.edit_message_text(text=new_text, reply_markup=kb, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Error updating schedule message on toggle: {e}")
+
+    elif data.startswith("sched_del_"):
+        scheduled_id = int(data.split("_")[2])
+        delete_scheduled_event(scheduled_id)
+        await query.answer("Programmazione eliminata.")
+        try:
+            if query.message.photo:
+                await query.edit_message_caption(caption="🗑️ Programmazione reposting eliminata.", reply_markup=None)
+            else:
+                await query.edit_message_text(text="🗑️ Programmazione reposting eliminata.", reply_markup=None)
+        except Exception:
+            pass
+
+    elif data.startswith("sched_close_"):
+        await query.answer("Chiuso.")
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
 
 

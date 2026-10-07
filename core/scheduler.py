@@ -190,11 +190,58 @@ async def archive_completed_month_logs():
     except Exception as e:
         logger.error(f"Archive: Error checking and zipping monthly logs: {e}")
 
+async def send_daily_scheduled_reposts(bot):
+    """
+    Runs daily at 10:00 AM.
+    Checks DB for scheduled events matching today (by recurring day or specific date),
+    and sends a summary notification to ADMIN_CHAT_ID with invoke commands.
+    """
+    if not bot or not ADMIN_CHAT_ID:
+        return
+
+    now = datetime.now()
+    days_it = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+    weekday_it = days_it[now.weekday()]
+    today_str = now.strftime("%d-%m-%Y")
+
+    logger.info(f"Scheduler: Checking scheduled reposts for today ({weekday_it} {today_str})...")
+    from core.db import get_scheduled_events_for_date
+    events = get_scheduled_events_for_date(today_str, weekday_it)
+
+    if not events:
+        logger.info(f"Scheduler: No events scheduled for reposting on {today_str}.")
+        return
+
+    lines = [
+        f"📅 <b>Eventi programmati per il reposting di oggi ({weekday_it} {today_str}):</b>\n"
+    ]
+    for ev in events:
+        sched_id = ev['id']
+        title = ev.get('title') or "Evento"
+        lines.append(
+            f"• <b>{title}</b> (ID #{sched_id})\n"
+            f"  👉 Invia per preparare il post: <code>/event_repost_invoke {sched_id}</code>\n"
+        )
+
+    lines.append(
+        "💡 <i>Promemoria:</i> Puoi aggiornare il contenuto di un evento programmato rispondendo a un messaggio con il nuovo testo/locandina e usando:\n"
+        "<code>/event_repost_update ID</code>"
+    )
+
+    msg_text = "\n".join(lines)
+    try:
+        await bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg_text, parse_mode="HTML")
+        logger.info(f"Scheduler: Sent today's scheduled reposts notification ({len(events)} events) to admin chat.")
+    except Exception as e:
+        logger.error(f"Scheduler: Failed to send scheduled reposts notification to admin chat: {e}")
+
 scheduler_instance = None
 
 def start_scheduler(bot):
     global scheduler_instance
     scheduler_instance = AsyncIOScheduler()
+    # Schedule check and notification of today's scheduled reposts at 10:00 AM
+    scheduler_instance.add_job(send_daily_scheduled_reposts, 'cron', hour=10, minute=0, args=[bot])
     # Schedule to run every day at a specific time (e.g., 16:00)
     scheduler_instance.add_job(generate_daily_recap, 'cron', hour=16, minute=0, args=[bot])
     # Schedule daily image archive at 23:59 and disable booking for today's events

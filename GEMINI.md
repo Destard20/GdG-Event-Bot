@@ -11,6 +11,8 @@
   - [2.6. Daily Recap Generation (`core/scheduler.py` & `bot/handlers.py`)](#26-daily-recap-generation-coreschedulerpy--bothandlerspy)
   - [2.7. Post-Recap WordPress & Story Pipeline (`bot/callbacks.py`)](#27-post-recap-wordpress--story-pipeline-botcallbackspy)
   - [2.8. Nightly Image Archiving (`core/scheduler.py` & `unzip_images.py`)](#28-nightly-image-archiving-coreschedulerpy--unzip_imagespy)
+  - [2.9. Daily Log Rotation & Monthly Log Archiving (`core/log_utils.py` & `core/scheduler.py`)](#29-daily-log-rotation--monthly-log-archiving-corelog_utilspy--coreschedulerpy)
+  - [2.10. Event Reposting & Repost Scheduling (`bot/handlers.py` & `core/scheduler.py`)](#210-event-reposting--repost-scheduling-bothandlerspy--coreschedulerpy)
 - [3. Directory Structure](#3-directory-structure)
 - [4. Database Schema (SQLite: `bot_database.db`)](#4-database-schema-sqlite-bot_databasedb)
 - [5. Environment Variables (`.environments`)](#5-environment-variables-environments)
@@ -122,7 +124,7 @@ The system automates the ingestion, standardization, social sharing, and booking
 - **Direct Participant List Command (`/event_subs <event_id>` or `/subs <event_id>` / `/event_subs_<event_id>`):**
   - Allows users or admins to manually query the participant list for any event by ID in private chat or discussion group.
 - **Deep-Link Upcoming Events (`t.me/{bot_username}?start=event_next`):**
-  - Opens a 1-on-1 private chat with the bot and executes `/start event_next`, which triggers `/event_next` and displays all today's and upcoming scheduled events directly in DM. Each event in the `/event_next` listing includes direct deep links (`start=subs_{id}`) and clickable `/event_subs_{id}` commands for instantaneous roster access.
+  - Opens a 1-on-1 private chat with the bot and executes `/start event_next`, which triggers `/event_next` and displays all today's and upcoming scheduled events directly in DM. Each event in the `/event_next` listing includes direct deep links (`start=subs_{id}`) and clickable `/event_subs {id}` commands for instantaneous roster access.
 
 - **Same-Day Conflict Warnings (`get_user_conflicting_events` & `send_conflict_warning`):**
   - When a user reserves a seat, the system checks whether the user already holds active reservations (`seats_booked > 0`) for any other valid events (`status NOT IN ('cancelled', 'discarded')`) scheduled on that exact same day.
@@ -211,6 +213,28 @@ When `[Publish Recap]` is clicked:
 - Upon each daily rotation (as well as on startup and via a nightly check at 00:05 in `core/scheduler.py`), the system checks whether the previous month has ended.
 - Daily logs from ended months are aggregated and compressed into `[DATA_DIR]/logs/bot_logs_YYYY-MM.zip`, and the loose daily log files for that month are deleted to save disk space.
 
+### 2.10. Event Reposting & Repost Scheduling (`bot/handlers.py` & `core/scheduler.py`)
+- **Direct Reposting (`/event_repost DATE SEATS` or `/er DATE SEATS`):**
+  - Allows admins to reply to any event announcement or bot preview to re-process and repost it with a single command.
+  - Groups AI parsing (`/event_process`), date modification (`/event_edit_date`), and seats capacity adjustment (`/event_edit_seats`) into one operation.
+  - Supports calendar dates (`DD-MM-YYYY [HH:MM]`), `"oggi"` (today), and relative weekday shortcuts `"LUN"`, `"MER"`, `"VEN"` (which target the next upcoming Monday, Wednesday, or Friday, skipping today if it's already that weekday).
+  - Prompts admin for confirmation via standard approval buttons (`[Publish]`, `[Discard]`, `[👥 Gestisci Iscritti]`).
+- **Interactive Repost Scheduling (`/event_repost_schedule`):**
+  - Replying to an event message with `/event_repost_schedule` opens an interactive management card with inline toggle buttons:
+    - Line 1: `[Lunedì] [Mercoledì] [Venerdì]` (standard opening days).
+    - Line 2: `[Sabato] [Domenica]` (special opening days).
+    - Buttons display dynamic emoji checkboxes (`✅` when active, `⬜` when inactive) to toggle recurring schedule days.
+  - Admins can also specify a one-off scheduled date via `/event_repost_schedule [ID] DD-MM-YYYY [HH:MM]`.
+- **Scheduled Repost Notification & Invocation (10:00 AM Cron):**
+  - Runs daily at **10:00 AM** via APScheduler.
+  - Queries `scheduled_events` for entries matching today's date or active weekday.
+  - Sends a consolidated digest to `ADMIN_CHAT_ID` listing each scheduled event with a clickable invocation command: `/event_repost_invoke <SCHEDULED_ID>`.
+  - Invoking `/event_repost_invoke <SCHEDULED_ID>` prepares the event with date set to today and outputs the approval card ready for publishing.
+- **Scheduled Content Overwrite (`/event_repost_update <SCHEDULED_ID>`):**
+  - Admins can reply to any new event post with `/event_repost_update <SCHEDULED_ID>` to overwrite the text and image template of an existing scheduled event entry in SQLite.
+- **Scheduled Events List (`/event_repost_list`):**
+  - Displays all scheduled repost entries stored in SQLite with their IDs, active recurring days, specific dates, and direct clickable `/event_repost_invoke <ID>` commands for instant posting.
+
 ---
 
 ## 3. Directory Structure
@@ -292,6 +316,17 @@ GdG-Event-Bot/
 | `username` | TEXT | | Telegram username (without @) or null if user has no handle |
 | `full_name` | TEXT | | Display / full name for users without a username |
 | `seats_booked` | INTEGER | DEFAULT 0 | Number of seats booked by this user |
+
+### Table: `scheduled_events`
+| Column | Type | Constraints / Default | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique scheduled event identifier |
+| `title` | TEXT | | Event / Game title |
+| `text` | TEXT | | Raw event text template |
+| `image_path` | TEXT | | Path to stored image for the scheduled event |
+| `schedule_days` | TEXT | DEFAULT '[]' | JSON array of active weekdays for recurring reposting |
+| `specific_date` | TEXT | | Optional specific date and time (`DD-MM-YYYY [HH:MM]`) |
+| `created_at` | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
 
 ---
 
