@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, AsyncMock, patch
 from telegram.error import BadRequest, RetryAfter
-from bot.service import _execute_with_retry, update_event_messages
+from bot.service.posts import _execute_with_retry, update_event_messages
 
 class TestService(unittest.IsolatedAsyncioTestCase):
     async def test_execute_with_retry_success(self):
@@ -46,7 +46,7 @@ class TestService(unittest.IsolatedAsyncioTestCase):
         context.bot.edit_message_caption = AsyncMock()
         context.bot.edit_message_text = AsyncMock()
 
-        with patch("bot.service.PUBLIC_CHANNEL_ID", "-100123"):
+        with patch("core.config.PUBLIC_CHANNEL_ID", "-100123"):
             await update_event_messages(context, event_id=1, event=event)
 
         context.bot.edit_message_caption.assert_called_once()
@@ -67,8 +67,8 @@ class TestService(unittest.IsolatedAsyncioTestCase):
         )
         context.bot.edit_message_text = AsyncMock()
 
-        with patch("bot.service.PUBLIC_CHANNEL_ID", "-100123"), \
-             patch("bot.service.logger") as mock_logger:
+        with patch("core.config.PUBLIC_CHANNEL_ID", "-100123"), \
+             patch("bot.service.posts.logger") as mock_logger:
             await update_event_messages(context, event_id=1, event=event)
 
         context.bot.edit_message_caption.assert_called_once()
@@ -90,7 +90,7 @@ class TestService(unittest.IsolatedAsyncioTestCase):
         )
         context.bot.edit_message_text = AsyncMock()
 
-        with patch("bot.service.PUBLIC_CHANNEL_ID", "-100123"):
+        with patch("core.config.PUBLIC_CHANNEL_ID", "-100123"):
             await update_event_messages(context, event_id=1, event=event)
 
         context.bot.edit_message_caption.assert_called_once()
@@ -111,8 +111,8 @@ class TestService(unittest.IsolatedAsyncioTestCase):
         )
         context.bot.edit_message_text = AsyncMock()
 
-        with patch("bot.service.PUBLIC_CHANNEL_ID", "-100123"), \
-             patch("bot.service.logger") as mock_logger:
+        with patch("core.config.PUBLIC_CHANNEL_ID", "-100123"), \
+             patch("bot.service.posts.logger") as mock_logger:
             await update_event_messages(context, event_id=1, event=event)
 
         context.bot.edit_message_caption.assert_called_once()
@@ -135,7 +135,7 @@ class TestService(unittest.IsolatedAsyncioTestCase):
         )
         context.bot.edit_message_caption = AsyncMock()
 
-        with patch("bot.service.PUBLIC_CHANNEL_ID", "-100123"):
+        with patch("core.config.PUBLIC_CHANNEL_ID", "-100123"):
             await update_event_messages(context, event_id=1, event=event)
 
         context.bot.edit_message_text.assert_called_once()
@@ -156,8 +156,8 @@ class TestService(unittest.IsolatedAsyncioTestCase):
         )
         context.bot.edit_message_caption = AsyncMock()
 
-        with patch("bot.service.PUBLIC_CHANNEL_ID", "-100123"), \
-             patch("bot.service.logger") as mock_logger:
+        with patch("core.config.PUBLIC_CHANNEL_ID", "-100123"), \
+             patch("bot.service.posts.logger") as mock_logger:
             await update_event_messages(context, event_id=1, event=event)
 
         context.bot.edit_message_text.assert_called_once()
@@ -179,7 +179,7 @@ class TestService(unittest.IsolatedAsyncioTestCase):
         )
         context.bot.edit_message_text = AsyncMock()
 
-        with patch("bot.service.PUBLIC_CHANNEL_ID", "-100123"), \
+        with patch("core.config.PUBLIC_CHANNEL_ID", "-100123"), \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await update_event_messages(context, event_id=1, event=event)
 

@@ -5,13 +5,10 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import core.db as db
-from bot.event_generator import (
-    fetch_bgg_game_image,
-    generate_event_data_with_ai,
-    enforce_caption_limit,
-    process_event_generation,
-    event_generate_command,
-)
+from bot.event_generator.bgg import fetch_bgg_game_image
+from bot.event_generator.ai import generate_event_data_with_ai
+from bot.event_generator.pipeline import enforce_caption_limit, process_event_generation
+from bot.event_generator.command import event_generate_command
 from core.ai_parser import GeminiQuotaError
 
 
@@ -179,10 +176,10 @@ class TestEventGenerator(unittest.IsolatedAsyncioTestCase):
         fake_photo_msg.message_id = 12345
         context.bot.send_photo.return_value = fake_photo_msg
 
-        with patch("bot.event_generator.generate_event_data_with_ai", return_value=ev_data), \
-             patch("bot.event_generator.fetch_bgg_game_image", return_value=b"SINGLE_IMG_BYTES"), \
-             patch("bot.event_generator.create_collage_from_bytes") as mock_collage, \
-             patch("bot.event_generator.save_image_locally", return_value=self.temp_dir.name + "/test.jpg"), \
+        with patch("bot.event_generator.pipeline.generate_event_data_with_ai", return_value=ev_data), \
+             patch("bot.event_generator.pipeline.fetch_bgg_game_image", return_value=b"SINGLE_IMG_BYTES"), \
+             patch("bot.event_generator.pipeline.create_collage_from_bytes") as mock_collage, \
+             patch("bot.event_generator.pipeline.save_image_locally", return_value=self.temp_dir.name + "/test.jpg"), \
              patch("os.path.exists", return_value=True), \
              patch("builtins.open", MagicMock()):
 
@@ -208,10 +205,10 @@ class TestEventGenerator(unittest.IsolatedAsyncioTestCase):
         fake_photo_msg.message_id = 54321
         context.bot.send_photo.return_value = fake_photo_msg
 
-        with patch("bot.event_generator.generate_event_data_with_ai", return_value=ev_data), \
-             patch("bot.event_generator.fetch_bgg_game_image", side_effect=[b"IMG_1", b"IMG_2"]), \
-             patch("bot.event_generator.create_collage_from_bytes", return_value=b"COLLAGE_BYTES") as mock_collage, \
-             patch("bot.event_generator.save_image_locally", return_value=self.temp_dir.name + "/collage.jpg"), \
+        with patch("bot.event_generator.pipeline.generate_event_data_with_ai", return_value=ev_data), \
+             patch("bot.event_generator.pipeline.fetch_bgg_game_image", side_effect=[b"IMG_1", b"IMG_2"]), \
+             patch("bot.event_generator.pipeline.create_collage_from_bytes", return_value=b"COLLAGE_BYTES") as mock_collage, \
+             patch("bot.event_generator.pipeline.save_image_locally", return_value=self.temp_dir.name + "/collage.jpg"), \
              patch("os.path.exists", return_value=True), \
              patch("builtins.open", MagicMock()):
 
@@ -239,10 +236,10 @@ class TestEventGenerator(unittest.IsolatedAsyncioTestCase):
         fake_photo_msg.message_id = 99999
         context.bot.send_photo.return_value = fake_photo_msg
 
-        with patch("bot.event_generator.generate_event_data_with_ai", return_value=ev_data), \
-             patch("bot.event_generator.fetch_bgg_game_image", side_effect=[b"IMG_1", None]), \
-             patch("bot.event_generator.create_collage_from_bytes") as mock_collage, \
-             patch("bot.event_generator.save_image_locally", return_value=self.temp_dir.name + "/single.jpg"), \
+        with patch("bot.event_generator.pipeline.generate_event_data_with_ai", return_value=ev_data), \
+             patch("bot.event_generator.pipeline.fetch_bgg_game_image", side_effect=[b"IMG_1", None]), \
+             patch("bot.event_generator.pipeline.create_collage_from_bytes") as mock_collage, \
+             patch("bot.event_generator.pipeline.save_image_locally", return_value=self.temp_dir.name + "/single.jpg"), \
              patch("os.path.exists", return_value=True), \
              patch("builtins.open", MagicMock()):
 
@@ -257,7 +254,7 @@ class TestEventGenerator(unittest.IsolatedAsyncioTestCase):
         update.effective_message = update.message
         context = MagicMock()
 
-        with patch("bot.event_generator.ADMIN_CHAT_ID", "12345"):
+        with patch("core.config.ADMIN_CHAT_ID", "12345"):
             await event_generate_command(update, context)
             update.message.reply_text.assert_called_once_with("Non sei autorizzato.")
 
@@ -271,7 +268,7 @@ class TestEventGenerator(unittest.IsolatedAsyncioTestCase):
         update.effective_message = update.message
         context = MagicMock()
 
-        with patch("bot.event_generator.ADMIN_CHAT_ID", "12345"):
+        with patch("core.config.ADMIN_CHAT_ID", "12345"):
             await event_generate_command(update, context)
             update.message.reply_text.assert_called_once()
             self.assertIn("Uso del comando /event_generate", update.message.reply_text.call_args[0][0])
@@ -286,8 +283,8 @@ class TestEventGenerator(unittest.IsolatedAsyncioTestCase):
         update.effective_message = update.message
         context = MagicMock()
 
-        with patch("bot.event_generator.ADMIN_CHAT_ID", "12345"), \
-             patch("bot.event_generator.process_event_generation", AsyncMock(return_value=(True, "Successo"))):
+        with patch("core.config.ADMIN_CHAT_ID", "12345"), \
+             patch("bot.event_generator.command.process_event_generation", AsyncMock(return_value=(True, "Successo"))):
             await event_generate_command(update, context)
             status_msg.edit_text.assert_called_once_with("✅ Successo")
 
@@ -316,8 +313,8 @@ class TestEventGenerator(unittest.IsolatedAsyncioTestCase):
         update.channel_post = channel_post
         context = MagicMock()
 
-        with patch("bot.event_generator.ADMIN_CHAT_ID", "12345"), \
-             patch("bot.event_generator.process_event_generation", AsyncMock(return_value=(True, "Successo"))):
+        with patch("core.config.ADMIN_CHAT_ID", "12345"), \
+             patch("bot.event_generator.command.process_event_generation", AsyncMock(return_value=(True, "Successo"))):
             await event_generate_command(update, context)
             status_msg.edit_text.assert_called_once_with("✅ Successo")
 

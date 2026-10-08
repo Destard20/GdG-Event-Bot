@@ -201,7 +201,7 @@ class TestEventEditTypeCommand(unittest.IsolatedAsyncioTestCase):
         db.DB_PATH = self.orig_db_path
 
     async def test_event_edit_type_to_boardgame(self):
-        from bot.handlers import event_edit_command
+        from bot.handlers.edit import event_edit_command
 
         update = MagicMock()
         update.effective_chat.id = 999
@@ -219,8 +219,8 @@ class TestEventEditTypeCommand(unittest.IsolatedAsyncioTestCase):
         update.message.reply_to_message = target_msg
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.update_event_messages", AsyncMock()) as mock_update_msgs:
+        with patch("core.config.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.edit.update_event_messages", AsyncMock()) as mock_update_msgs:
             await event_edit_command(update, context)
 
         ev = db.get_event(self.event_id)
@@ -231,7 +231,7 @@ class TestEventEditTypeCommand(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Host: Master DM", target_msg.edit_text.call_args.kwargs["text"])
 
     async def test_event_edit_type_to_rpg(self):
-        from bot.handlers import event_edit_command
+        from bot.handlers.edit import event_edit_command
 
         db.update_event_field(self.event_id, "is_roleplay", 0)
 
@@ -251,8 +251,8 @@ class TestEventEditTypeCommand(unittest.IsolatedAsyncioTestCase):
         update.message.reply_to_message = target_msg
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.update_event_messages", AsyncMock()):
+        with patch("core.config.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.edit.update_event_messages", AsyncMock()):
             await event_edit_command(update, context)
 
         ev = db.get_event(self.event_id)
@@ -260,7 +260,7 @@ class TestEventEditTypeCommand(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Master: Master DM", target_msg.edit_text.call_args.kwargs["text"])
 
     async def test_event_edit_type_toggle(self):
-        from bot.handlers import event_edit_command
+        from bot.handlers.edit import event_edit_command
 
         self.assertEqual(db.get_event(self.event_id)["is_roleplay"], 1)
 
@@ -280,15 +280,15 @@ class TestEventEditTypeCommand(unittest.IsolatedAsyncioTestCase):
         update.message.reply_to_message = target_msg
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.update_event_messages", AsyncMock()):
+        with patch("core.config.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.edit.update_event_messages", AsyncMock()):
             await event_edit_command(update, context)
 
         ev = db.get_event(self.event_id)
         self.assertEqual(ev["is_roleplay"], 0)
 
     async def test_event_edit_type_invalid_argument(self):
-        from bot.handlers import event_edit_command
+        from bot.handlers.edit import event_edit_command
 
         update = MagicMock()
 

@@ -10,18 +10,19 @@ from core.config import (
     LOGS_DIR
 )
 from core.db import init_db
-from bot.handlers import (
-    process_message, manual_trigger_command, manual_recap_command, 
-    handle_discussion_forward, event_edit_command, bot_pause_command, 
-    bot_resume_command, bot_status_command, event_next_command,
-    event_sub_add_command, event_sub_remove_command, handle_admin_reply,
-    cache_admin_media_group, start_command, event_subs_command,
-    event_repost_command, event_repost_schedule_command,
-    event_repost_invoke_command, event_repost_update_command,
-    event_repost_list_command
+from bot.handlers.albums import cache_admin_media_group
+from bot.handlers.control import bot_pause_command, bot_resume_command, bot_status_command
+from bot.handlers.edit import event_edit_command
+from bot.handlers.ingestion import process_message, manual_trigger_command
+from bot.handlers.public import event_next_command, event_subs_command, start_command
+from bot.handlers.recap import manual_recap_command, handle_discussion_forward
+from bot.handlers.repost import event_repost_command, event_repost_invoke_command
+from bot.handlers.repost_schedule import (
+    event_repost_schedule_command, event_repost_update_command, event_repost_list_command,
 )
-from bot.event_generator import event_generate_command
-from bot.callbacks import handle_approval
+from bot.handlers.subscribers import event_sub_add_command, event_sub_remove_command, handle_admin_reply
+from bot.event_generator.command import event_generate_command
+from bot.callbacks.router import handle_callback_query
 from core.scheduler import start_scheduler
 from core.log_utils import DailyMonthlyLogHandler
 
@@ -200,7 +201,7 @@ def main():
     application.add_handler(MessageHandler(filters.ALL, debug_all))
         
     # Callback queries (buttons)
-    application.add_handler(CallbackQueryHandler(handle_approval))
+    application.add_handler(CallbackQueryHandler(handle_callback_query))
 
     # Global error handler
     application.add_error_handler(global_error_handler)

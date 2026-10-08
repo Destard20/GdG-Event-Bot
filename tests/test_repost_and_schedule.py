@@ -5,17 +5,12 @@ from datetime import datetime, date
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import core.db as db
-from bot.handlers import (
-    event_repost_command,
-    event_repost_schedule_command,
-    event_repost_invoke_command,
-    event_repost_update_command,
-    event_repost_list_command,
-    event_edit_command,
-    format_schedule_repost_message,
-)
+from bot.handlers.repost import event_repost_command, event_repost_invoke_command
+from bot.handlers.repost_schedule import event_repost_schedule_command, event_repost_update_command, event_repost_list_command
+from bot.handlers.edit import event_edit_command
+from utils.templates import format_schedule_repost_message
 from bot.keyboards import get_schedule_repost_keyboard
-from bot.callbacks import handle_approval
+from bot.callbacks.router import handle_callback_query
 from core.scheduler import send_daily_scheduled_reposts
 from utils.date_utils import parse_user_date, format_standard_event_date
 
@@ -91,7 +86,7 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
         update.message.text = "/event_edit_date oggi"
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+        with patch("core.config.ADMIN_CHAT_ID", "999"):
             await event_edit_command(update, context)
 
         ev = db.get_event(ev_id)
@@ -168,8 +163,8 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
         context = MagicMock()
         context.bot.send_message = AsyncMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.parse_event_message", return_value={
+        with patch("core.config.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.extraction.parse_event_message", return_value={
                  "is_event": True,
                  "title": "Cthulhu Hack",
                  "date": "01-01-2026 21:00",
@@ -216,7 +211,7 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
 
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+        with patch("core.config.ADMIN_CHAT_ID", "999"):
             await event_repost_schedule_command(update, context)
 
         update.message.reply_text.assert_called_once()
@@ -251,8 +246,8 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
 
         context = MagicMock()
 
-        with patch("bot.callbacks.ADMIN_CHAT_ID", "999"):
-            await handle_approval(update, context)
+        with patch("core.config.ADMIN_CHAT_ID", "999"):
+            await handle_callback_query(update, context)
 
         ev = db.get_scheduled_event(sched_id)
         self.assertIn("Mercoledì", ev["schedule_days"])
@@ -260,8 +255,8 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
 
         # Toggle again to deactivate Mercoledì
         update.callback_query.data = f"sched_toggle_{sched_id}_mer"
-        with patch("bot.callbacks.ADMIN_CHAT_ID", "999"):
-            await handle_approval(update, context)
+        with patch("core.config.ADMIN_CHAT_ID", "999"):
+            await handle_callback_query(update, context)
 
         ev = db.get_scheduled_event(sched_id)
         self.assertNotIn("Mercoledì", ev["schedule_days"])
@@ -309,8 +304,8 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
         context = MagicMock()
         context.bot.send_message = AsyncMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.parse_event_message", return_value={
+        with patch("core.config.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.extraction.parse_event_message", return_value={
                  "is_event": True,
                  "title": "Cyberpunk Red",
                  "date": "01-01-2026 21:00",
@@ -359,7 +354,7 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
 
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+        with patch("core.config.ADMIN_CHAT_ID", "999"):
             await event_repost_update_command(update, context)
 
         update.message.reply_text.assert_called()
@@ -379,7 +374,7 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
 
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+        with patch("core.config.ADMIN_CHAT_ID", "999"):
             await event_repost_list_command(update, context)
 
         update.message.reply_text.assert_called_once()
@@ -406,7 +401,7 @@ class TestRepostAndSchedule(unittest.IsolatedAsyncioTestCase):
 
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"):
+        with patch("core.config.ADMIN_CHAT_ID", "999"):
             await event_repost_list_command(update, context)
 
         update.message.reply_text.assert_called_once()

@@ -12,6 +12,20 @@ class GeminiQuotaError(Exception):
 
 GEMINI_DEPLETED_ALERT = "🚨 Errore Gemini AI (Crediti esauriti):\n429 Your prepayment credits are depleted."
 
+
+def strip_json_fence(text):
+    text = text.strip()
+    if text.startswith("```json"):
+        return text[7:-3].strip()
+    if text.startswith("```"):
+        return text[3:-3].strip()
+    return text
+
+
+def is_quota_error(err):
+    err_str = str(err).lower()
+    return "429" in err_str or "prepayment credits are depleted" in err_str or "quota" in err_str or "resourceexhausted" in err_str
+
 genai.configure(api_key=GEMINI_API_KEY)
 
 def parse_event_message(message_text):
@@ -68,11 +82,7 @@ def parse_event_message(message_text):
         logger.info("AI Parser: Sending message to Gemini for event extraction...")
         model = genai.GenerativeModel(GEMINI_MODEL)
         response = model.generate_content(prompt)
-        text = response.text.strip()
-        if text.startswith("```json"):
-            text = text[7:-3].strip()
-        elif text.startswith("```"):
-            text = text[3:-3].strip()
+        text = strip_json_fence(response.text)
             
         data = json.loads(text)
         
@@ -110,9 +120,8 @@ def parse_event_message(message_text):
         return data
     except Exception as e:
         logger.error(f"Error parsing message with AI: {e}")
-        err_str = str(e)
-        if "429" in err_str or "prepayment credits are depleted" in err_str.lower() or "quota" in err_str.lower() or "resourceexhausted" in err_str.lower():
-            raise GeminiQuotaError(err_str) from e
+        if is_quota_error(e):
+            raise GeminiQuotaError(str(e)) from e
         return None
 
 def generate_wordpress_article(recap_text, event_list):
@@ -149,8 +158,7 @@ def generate_wordpress_article(recap_text, event_list):
         return response.text.strip()
     except Exception as e:
         logger.error(f"Error generating WP article with AI: {e}")
-        err_str = str(e)
-        if "429" in err_str or "prepayment credits are depleted" in err_str.lower() or "quota" in err_str.lower() or "resourceexhausted" in err_str.lower():
-            raise GeminiQuotaError(err_str) from e
+        if is_quota_error(e):
+            raise GeminiQuotaError(str(e)) from e
         return None
 

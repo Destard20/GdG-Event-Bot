@@ -32,7 +32,7 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
         db.DB_PATH = self.orig_db_path
 
     async def test_booking_logging_success_and_failure(self):
-        from bot.service import handle_seat_booking
+        from bot.service.booking import handle_seat_booking
 
         user = MagicMock()
         user.id = 112233
@@ -46,8 +46,8 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
         context = MagicMock()
         context.bot.send_message = AsyncMock()
 
-        with patch("bot.service.logger") as mock_logger, \
-             patch("bot.service.update_event_messages", AsyncMock()):
+        with patch("bot.service.booking.logger") as mock_logger, \
+             patch("bot.service.booking.update_event_messages", AsyncMock()):
             await handle_seat_booking(self.event_id, user, query, context)
             mock_logger.info.assert_called()
             info_call = [call[0][0] for call in mock_logger.info.call_args_list]
@@ -64,7 +64,7 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any("445566" in msg and f"#{self.event_id}" in msg and "failed" in msg for msg in warn_call))
 
     async def test_unbooking_logging_success_and_failure(self):
-        from bot.service import handle_seat_booking, handle_seat_unbooking
+        from bot.service.booking import handle_seat_booking, handle_seat_unbooking
 
         user = MagicMock()
         user.id = 112233
@@ -78,10 +78,10 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
         context = MagicMock()
         context.bot.send_message = AsyncMock()
 
-        with patch("bot.service.update_event_messages", AsyncMock()):
+        with patch("bot.service.booking.update_event_messages", AsyncMock()):
             await handle_seat_booking(self.event_id, user, query, context)
 
-            with patch("bot.service.logger") as mock_logger:
+            with patch("bot.service.booking.logger") as mock_logger:
                 await handle_seat_unbooking(self.event_id, user, query, context)
                 mock_logger.info.assert_called()
                 info_call = [call[0][0] for call in mock_logger.info.call_args_list]
@@ -93,7 +93,7 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(any("112233" in msg and f"#{self.event_id}" in msg and "failed to unbook" in msg for msg in warn_call))
 
     async def test_admin_callback_actions_logging(self):
-        from bot.callbacks import handle_approval
+        from bot.callbacks.router import handle_callback_query
 
         admin = MagicMock()
         admin.id = 998877
@@ -113,8 +113,8 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
         query.data = f"discard_event_{self.event_id}"
         update = MagicMock()
         update.callback_query = query
-        with patch("bot.callbacks.logger") as mock_logger:
-            await handle_approval(update, context)
+        with patch("bot.callbacks.events.logger") as mock_logger:
+            await handle_callback_query(update, context)
             mock_logger.info.assert_called()
             info_call = [call[0][0] for call in mock_logger.info.call_args_list]
             self.assertTrue(any("998877" in msg and "discarded" in msg for msg in info_call))
@@ -122,29 +122,30 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
         ev_id2 = db.insert_event(self.event_data, None, "Original text")
 
         query.data = f"cancel_event_{ev_id2}"
-        with patch("bot.callbacks.logger") as mock_logger, \
-             patch("bot.callbacks.send_cancellation_notice", AsyncMock()), \
-             patch("bot.callbacks.update_event_messages", AsyncMock()):
-            await handle_approval(update, context)
+        with patch("bot.callbacks.events.logger") as mock_logger, \
+             patch("bot.callbacks.events.send_cancellation_notice", AsyncMock()), \
+             patch("bot.callbacks.events.update_event_messages", AsyncMock()):
+            await handle_callback_query(update, context)
             info_call = [call[0][0] for call in mock_logger.info.call_args_list]
             self.assertTrue(any("998877" in msg and "cancelled" in msg for msg in info_call))
 
         query.data = f"reactivate_event_{ev_id2}"
-        with patch("bot.callbacks.logger") as mock_logger, \
-             patch("bot.callbacks.send_reactivation_notice", AsyncMock()), \
-             patch("bot.callbacks.update_event_messages", AsyncMock()):
-            await handle_approval(update, context)
+        with patch("bot.callbacks.events.logger") as mock_logger, \
+             patch("bot.callbacks.events.send_reactivation_notice", AsyncMock()), \
+             patch("bot.callbacks.events.update_event_messages", AsyncMock()):
+            await handle_callback_query(update, context)
             info_call = [call[0][0] for call in mock_logger.info.call_args_list]
             self.assertTrue(any("998877" in msg and "reactivated" in msg for msg in info_call))
 
         query.data = "discard_recap_10-10-2026"
-        with patch("bot.callbacks.logger") as mock_logger:
-            await handle_approval(update, context)
+        with patch("bot.callbacks.recap.logger") as mock_logger:
+            await handle_callback_query(update, context)
             info_call = [call[0][0] for call in mock_logger.info.call_args_list]
             self.assertTrue(any("998877" in msg and "discarded recap" in msg for msg in info_call))
 
     async def test_admin_commands_logging(self):
-        from bot.handlers import bot_pause_command, bot_resume_command, event_edit_command
+        from bot.handlers.control import bot_pause_command, bot_resume_command
+        from bot.handlers.edit import event_edit_command
 
         admin = MagicMock()
         admin.id = 998877
@@ -156,8 +157,8 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
         update.message.reply_text = AsyncMock()
         context = MagicMock()
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.logger") as mock_logger:
+        with patch("core.config.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.control.logger") as mock_logger:
             await bot_pause_command(update, context)
             self.assertTrue(any("998877" in msg and "paused" in msg for msg in [c[0][0] for c in mock_logger.info.call_args_list]))
 
@@ -175,8 +176,8 @@ class TestAuditLogging(unittest.IsolatedAsyncioTestCase):
         update.message.text = "/event_edit_title New Glorious Title"
         update.message.caption = None
 
-        with patch("bot.handlers.ADMIN_CHAT_ID", "999"), \
-             patch("bot.handlers.logger") as mock_logger:
+        with patch("core.config.ADMIN_CHAT_ID", "999"), \
+             patch("bot.handlers.edit.logger") as mock_logger:
             await event_edit_command(update, context)
             self.assertTrue(any("998877" in msg and "title" in msg and f"#{ev_id}" in msg for msg in [c[0][0] for c in mock_logger.info.call_args_list]))
             ev = db.get_event(ev_id)
